@@ -7,8 +7,8 @@ An interactive perspective transform tool for correcting image distortion using 
 - **Interactive Point Selection**: Click to select 4 corner points on your document
 - **Drag-and-Drop Adjustment**: Click and drag any point to fine-tune its position
 - **Zoom & Pan**: Mouse wheel zoom and right-click pan for precise point placement
-- **Millimeter-Based Dimensions**: Specify output size in mm with configurable DPI
-- **Dimension Presets**: Quick buttons for A4 and Letter paper sizes
+- **Auto-Calculated Dimensions**: Automatically calculates output dimensions from selected points
+- **Millimeter-Based Dimensions**: Output size in mm with configurable DPI
 - **Real-time Visual Feedback**: Enhanced point markers with numbers and connecting lines
 - **Perspective Transform**: Automatically straightens and corrects perspective
 - **Side-by-Side View**: View original and transformed images simultaneously
@@ -25,7 +25,11 @@ pip install opencv-python numpy pillow
 ### Running the Application
 
 ```bash
+# Start with file dialog
 python dewarp.py
+
+# Or load an image directly
+python dewarp.py path/to/image.jpg
 ```
 
 ### Steps
@@ -40,10 +44,13 @@ python dewarp.py
    - **Pan**: Right-click and drag to move around the zoomed image
    - **Drag Points**: Click and drag any point to adjust its position precisely
    - **Fit**: Click "Fit" button to reset zoom and pan
-4. **Set Dimensions**:
-   - Enter width and height in millimeters (defaults to A4: 210×297mm)
+4. **Review Dimensions** (auto-calculated):
+   - After selecting 4 points, dimensions are automatically calculated based on point distances
+   - Width = average of top and bottom edge lengths
+   - Height = average of left and right edge lengths
+   - Adjusting points will update dimensions UNTIL you manually edit them
+   - Once you manually change width/height, they remain fixed when adjusting points
    - Set DPI (default 300 for high quality)
-   - Use preset buttons for quick A4 or Letter sizes
 5. **Apply Transform**: Click "Apply Transform" to process the image
 6. **Save Result**: Click "Save Result" to export the transformed image
 
@@ -57,15 +64,19 @@ python dewarp.py
 
 ### Dimension Settings
 
-Dimensions are specified in **millimeters** with a DPI setting:
+Dimensions are **automatically calculated** based on your selected points and specified in **millimeters**:
 
-- **Width (mm)**: Horizontal dimension of output (e.g., 210 for A4)
-- **Height (mm)**: Vertical dimension of output (e.g., 297 for A4)
+- **Width (mm)**: Auto-calculated from average of top and bottom edge lengths
+- **Height (mm)**: Auto-calculated from average of left and right edge lengths
 - **DPI**: Dots per inch for conversion (300 recommended for print quality)
 
-**Common Presets:**
-- **A4**: 210×297mm
-- **Letter**: 216×279mm (US Letter: 8.5×11 inches)
+**How it works:**
+1. After selecting 4 corner points, the app measures the distances between them
+2. It averages opposing sides (top/bottom for width, left/right for height)
+3. Converts pixel distances to millimeters based on DPI setting
+4. As you drag points to fine-tune, dimensions automatically update
+5. Once you manually type in width or height, auto-calculation stops
+6. Click "Reset Points" to re-enable auto-calculation
 
 **Pixel Calculation**: `pixels = (mm / 25.4) × DPI`
 

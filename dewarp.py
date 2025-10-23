@@ -4,6 +4,7 @@ Allows user to select 4 corner points and apply perspective transform
 Features: Zoom, Pan, Drag-and-Drop points, Millimeter dimensions
 """
 
+import argparse
 import cv2
 import numpy as np
 import tkinter as tk
@@ -28,8 +29,8 @@ class DewarpGUI:
         self.zoom_level = 1.0
         self.pan_offset = [0.0, 0.0]
         self.base_scale_factor = 1.0
-        self.canvas_width = 900
-        self.canvas_height = 700
+        self.canvas_width = 500  # Initial placeholder
+        self.canvas_height = 400  # Initial placeholder
         self.needs_initial_center = False
 
         # Drag state
@@ -40,10 +41,26 @@ class DewarpGUI:
         # DPI for mm conversion (default 300 DPI)
         self.dpi = 300
 
+        # Track if user has manually set dimensions
+        self.dimensions_manually_set = False
+        self._updating_dimensions = False  # Flag to prevent callback during auto-update
+
         # Setup UI
         self.setup_ui()
 
     def setup_ui(self):
+        # Calculate canvas dimensions based on screen size
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        # Use 45% of screen width for each canvas, 70% of screen height
+        self.canvas_width = int(screen_width * 0.45)
+        self.canvas_height = int(screen_height * 0.7)
+
+        # Set minimum sizes
+        self.canvas_width = max(400, self.canvas_width)
+        self.canvas_height = max(300, self.canvas_height)
+
         # Control Panel
         control_frame = ttk.Frame(self.root, padding="10")
         control_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -71,12 +88,14 @@ class DewarpGUI:
         ttk.Label(control_frame, text="Output Dimensions:").grid(row=1, column=0, padx=5, pady=(10, 5), sticky=tk.W)
 
         ttk.Label(control_frame, text="Width (mm):").grid(row=1, column=1, padx=5, sticky=tk.E)
-        self.width_var = tk.StringVar(value="210")  # A4 width
+        self.width_var = tk.StringVar(value="")  # Empty until points selected
+        self.width_var.trace_add('write', self.on_dimension_changed)
         self.width_entry = ttk.Entry(control_frame, textvariable=self.width_var, width=8)
         self.width_entry.grid(row=1, column=2, padx=5)
 
         ttk.Label(control_frame, text="Height (mm):").grid(row=1, column=3, padx=5, sticky=tk.E)
-        self.height_var = tk.StringVar(value="297")  # A4 height
+        self.height_var = tk.StringVar(value="")  # Empty until points selected
+        self.height_var.trace_add('write', self.on_dimension_changed)
         self.height_entry = ttk.Entry(control_frame, textvariable=self.height_var, width=8)
         self.height_entry.grid(row=1, column=4, padx=5)
 
@@ -109,6 +128,7 @@ class DewarpGUI:
         self.canvas.bind("<Button-3>", self.on_canvas_right_click)
         self.canvas.bind("<B3-Motion>", self.on_canvas_pan)
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
+        self.canvas.bind("<Configure>", self.on_canvas_resize)
 
         # Result Canvas
         right_frame = ttk.Frame(canvas_container)
@@ -118,6 +138,7 @@ class DewarpGUI:
                                        width=self.canvas_width, height=self.canvas_height,
                                        highlightthickness=0)
         self.result_canvas.pack(fill=tk.BOTH, expand=False)
+        self.result_canvas.bind("<Configure>", self.on_result_canvas_resize)
 
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
@@ -133,6 +154,12 @@ class DewarpGUI:
         except ValueError:
             dpi = 300
         return int((mm / 25.4) * dpi)
+
+    def on_dimension_changed(self, *args):
+        """Called when width or height field is modified"""
+        # Only mark as manually set if we're not programmatically updating
+        if not self._updating_dimensions:
+            self.dimensions_manually_set = True
 
     def zoom_in(self, center_x=None, center_y=None):
         """Zoom in by 20%, centered on given point"""
@@ -195,6 +222,30 @@ class DewarpGUI:
         else:
             self.zoom_out(event.x, event.y)
 
+    def on_canvas_resize(self, event):
+        """Handle canvas resize events"""
+        # Update canvas dimensions when window is resized
+        new_width = event.width
+        new_height = event.height
+
+        # Only update if dimensions actually changed
+        if new_width != self.canvas_width or new_height != self.canvas_height:
+            self.canvas_width = new_width
+            self.canvas_height = new_height
+
+            # Redisplay the image with new dimensions
+            if self.image is not None:
+                # Recalculate and center the image for the new canvas size
+                self.needs_initial_center = True
+                self.zoom_level = 1.0
+                self.display_on_canvas()
+
+    def on_result_canvas_resize(self, event):
+        """Handle result canvas resize events"""
+        # Redisplay the result image if it exists
+        if self.transformed_image is not None:
+            self.display_result()
+
     def on_canvas_right_click(self, event):
         """Start panning with right mouse button"""
         self.drag_start = (event.x, event.y)
@@ -216,28 +267,39 @@ class DewarpGUI:
         )
 
         if file_path:
-            # Load image with OpenCV
-            self.original_image = cv2.imread(file_path)
-            if self.original_image is None:
-                self.status_label.config(text="Error: Could not load image")
-                return
+            self.load_image_from_path(file_path)
 
-            # Store the original file path for save dialog
-            self.original_file_path = file_path
+    def load_image_from_path(self, file_path):
+        """Load an image from the given file path"""
+        # Load image with OpenCV
+        self.original_image = cv2.imread(file_path)
+        if self.original_image is None:
+            self.status_label.config(text="Error: Could not load image")
+            return
 
-            # Convert BGR to RGB for display
-            self.image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2RGB)
+        # Store the original file path for save dialog
+        self.original_file_path = file_path
 
-            # Reset state
-            self.points = []
-            self.transformed_image = None
-            self.zoom_level = 1.0
-            self.pan_offset = [0.0, 0.0]
-            self.needs_initial_center = True
+        # Convert BGR to RGB for display
+        self.image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2RGB)
 
-            # Display the image
-            self.display_on_canvas()
-            self.status_label.config(text="Click 4 corners (drag to adjust). Drag to pan, scroll to zoom.")
+        # Reset state
+        self.points = []
+        self.transformed_image = None
+        self.zoom_level = 1.0
+        self.pan_offset = [0.0, 0.0]
+        self.needs_initial_center = True
+
+        # Clear dimension fields and reset manual flag
+        self._updating_dimensions = True
+        self.width_var.set("")
+        self.height_var.set("")
+        self._updating_dimensions = False
+        self.dimensions_manually_set = False
+
+        # Display the image
+        self.display_on_canvas()
+        self.status_label.config(text="Click 4 corners (drag to adjust). Drag to pan, scroll to zoom.")
 
     def display_on_canvas(self):
         if self.image is None:
@@ -245,10 +307,10 @@ class DewarpGUI:
 
         height, width = self.image.shape[:2]
 
-        # Calculate base scale to fit canvas
+        # Calculate base scale to fit canvas (with small margin)
         scale_w = self.canvas_width / width
         scale_h = self.canvas_height / height
-        self.base_scale_factor = min(scale_w, scale_h)
+        self.base_scale_factor = min(scale_w, scale_h) * 0.98  # 98% to ensure it fits
 
         # Apply zoom
         effective_scale = self.base_scale_factor * self.zoom_level
@@ -257,16 +319,16 @@ class DewarpGUI:
         new_height = int(height * effective_scale)
 
         # Resize for display
-        display_image = cv2.resize(self.image, (new_width, new_height))
+        display_image = cv2.resize(self.image, (new_width, new_height), interpolation=cv2.INTER_AREA)
 
         # Create canvas-sized image with background
         canvas_image = np.full((self.canvas_height, self.canvas_width, 3), 64, dtype=np.uint8)
 
-        # Center the image on initial load
+        # Center the image on initial load or fit
         if self.needs_initial_center:
-            # Calculate centering offset
-            center_x = (self.canvas_width - new_width) / 2
-            center_y = (self.canvas_height - new_height) / 2
+            # Calculate centering offset to position image in middle of canvas
+            center_x = (self.canvas_width - new_width) / 2.0
+            center_y = (self.canvas_height - new_height) / 2.0
             self.pan_offset = [center_x, center_y]
             self.needs_initial_center = False
 
@@ -370,7 +432,8 @@ class DewarpGUI:
             self.display_on_canvas()
 
             if len(self.points) == 4:
-                self.status_label.config(text="All 4 points selected. Adjust by dragging. Click 'Apply Transform' when ready.")
+                self.calculate_output_dimensions()
+                self.status_label.config(text="All 4 points selected. Dimensions calculated. Adjust by dragging or click 'Apply Transform'.")
                 self.transform_btn.config(state=tk.NORMAL)
             else:
                 labels = ["top-left", "top-right", "bottom-right", "bottom-left"]
@@ -413,6 +476,9 @@ class DewarpGUI:
             self.dragging_point = None
             self.drag_start = None
             self.canvas.config(cursor="cross")
+            # Recalculate dimensions after dragging a point
+            if len(self.points) == 4:
+                self.calculate_output_dimensions()
         elif self.panning:
             self.panning = False
             self.drag_start = None
@@ -424,6 +490,13 @@ class DewarpGUI:
         self.transform_btn.config(state=tk.DISABLED)
         self.save_btn.config(state=tk.DISABLED)
         self.result_canvas.delete("all")
+
+        # Clear dimension fields and reset manual flag
+        self._updating_dimensions = True
+        self.width_var.set("")
+        self.height_var.set("")
+        self._updating_dimensions = False
+        self.dimensions_manually_set = False
 
         if self.image is not None:
             self.display_on_canvas()
@@ -447,6 +520,46 @@ class DewarpGUI:
         bl, br = bottom_pts
 
         return np.array([tl, tr, br, bl], dtype="float32")
+
+    def calculate_output_dimensions(self):
+        """Calculate output dimensions based on the distances between selected points"""
+        if len(self.points) != 4:
+            return
+
+        # Don't recalculate if user has manually set dimensions
+        if self.dimensions_manually_set:
+            return
+
+        # Order the points
+        rect = self.order_points(self.points)
+        (tl, tr, br, bl) = rect
+
+        # Calculate distances between points (in pixels)
+        top_width = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+        bottom_width = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+        left_height = np.sqrt(((bl[0] - tl[0]) ** 2) + ((bl[1] - tl[1]) ** 2))
+        right_height = np.sqrt(((br[0] - tr[0]) ** 2) + ((br[1] - tr[1]) ** 2))
+
+        # Average the opposing sides
+        avg_width_pixels = (top_width + bottom_width) / 2.0
+        avg_height_pixels = (left_height + right_height) / 2.0
+
+        # Get current DPI setting
+        try:
+            dpi = int(self.dpi_var.get())
+        except ValueError:
+            dpi = 300
+
+        # Convert pixels to millimeters: mm = (pixels / DPI) * 25.4
+        width_mm = (avg_width_pixels / dpi) * 25.4
+        height_mm = (avg_height_pixels / dpi) * 25.4
+
+        # Update the dimension fields (rounded to nearest mm)
+        # Set flag to prevent triggering the manual edit callback
+        self._updating_dimensions = True
+        self.width_var.set(str(int(round(width_mm))))
+        self.height_var.set(str(int(round(height_mm))))
+        self._updating_dimensions = False
 
     def apply_transform(self):
         if len(self.points) != 4:
@@ -544,8 +657,19 @@ class DewarpGUI:
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Dewarp - Interactive Perspective Transform Tool')
+    parser.add_argument('image', nargs='?', help='Image file to load on startup')
+    args = parser.parse_args()
+
     root = tk.Tk()
     app = DewarpGUI(root)
+
+    # Load image if provided via command line
+    if args.image:
+        # Ensure UI is fully initialized before loading image
+        root.update_idletasks()
+        app.load_image_from_path(args.image)
+
     root.mainloop()
 
 
