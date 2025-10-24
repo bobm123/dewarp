@@ -5,7 +5,8 @@ Features: Zoom, Pan, Drag-and-Drop points, Millimeter dimensions
 """
 
 import argparse
-import cv2
+import cv2  # Still needed for constants
+import cv3
 import numpy as np
 import tkinter as tk
 from tkinter import filedialog, ttk
@@ -272,7 +273,7 @@ class DewarpGUI:
     def load_image_from_path(self, file_path):
         """Load an image from the given file path"""
         # Load image with OpenCV
-        self.original_image = cv2.imread(file_path)
+        self.original_image = cv3.imread(file_path)
         if self.original_image is None:
             self.status_label.config(text="Error: Could not load image")
             return
@@ -280,8 +281,8 @@ class DewarpGUI:
         # Store the original file path for save dialog
         self.original_file_path = file_path
 
-        # Convert BGR to RGB for display
-        self.image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2RGB)
+        # cv3 loads images in RGB by default (no conversion needed)
+        self.image = self.original_image
 
         # Reset state
         self.points = []
@@ -319,7 +320,7 @@ class DewarpGUI:
         new_height = int(height * effective_scale)
 
         # Resize for display
-        display_image = cv2.resize(self.image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+        display_image = cv3.resize(self.image, new_width, new_height)
 
         # Create canvas-sized image with background
         canvas_image = np.full((self.canvas_height, self.canvas_width, 3), 64, dtype=np.uint8)
@@ -363,7 +364,7 @@ class DewarpGUI:
                 # Only draw if within canvas bounds
                 if (0 <= pt1_x < self.canvas_width and 0 <= pt1_y < self.canvas_height and
                     0 <= pt2_x < self.canvas_width and 0 <= pt2_y < self.canvas_height):
-                    cv2.line(canvas_image, (pt1_x, pt1_y), (pt2_x, pt2_y), (0, 255, 0), 2)
+                    cv3.line(canvas_image, pt1_x, pt1_y, pt2_x, pt2_y, color=(0, 255, 0), t=2)
 
         # Draw points on top
         for i, pt in enumerate(self.points):
@@ -373,10 +374,10 @@ class DewarpGUI:
             # Only draw if within canvas bounds (with some margin for visibility)
             if -20 <= pt_x < self.canvas_width + 20 and -20 <= pt_y < self.canvas_height + 20:
                 # Outer circle
-                cv2.circle(canvas_image, (pt_x, pt_y), 10, (0, 0, 255), 2)
+                cv3.circle(canvas_image, pt_x, pt_y, 10, color=(0, 0, 255), t=2)
                 # Inner filled circle
-                cv2.circle(canvas_image, (pt_x, pt_y), 6, (255, 0, 0), -1)
-                # Label
+                cv3.circle(canvas_image, pt_x, pt_y, 6, color=(255, 0, 0), fill=True)
+                # Label - use cv2 for text as it's simpler
                 cv2.putText(canvas_image, str(i+1), (pt_x+12, pt_y-12),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
@@ -590,9 +591,13 @@ class DewarpGUI:
             [output_width - 1, output_height - 1],
             [0, output_height - 1]], dtype="float32")
 
-        # Compute perspective transform
+        # Compute perspective transform - cv3 doesn't have these, use cv2
         M = cv2.getPerspectiveTransform(rect, dst)
-        self.transformed_image = cv2.warpPerspective(self.original_image, M, (output_width, output_height))
+        # Note: cv2.warpPerspective expects BGR, but we need to work with RGB
+        # Convert to BGR for warpPerspective, then back to RGB
+        original_bgr = cv2.cvtColor(self.original_image, cv2.COLOR_RGB2BGR)
+        transformed_bgr = cv2.warpPerspective(original_bgr, M, (output_width, output_height))
+        self.transformed_image = cv2.cvtColor(transformed_bgr, cv2.COLOR_BGR2RGB)
 
         # Display result
         self.display_result()
@@ -603,8 +608,8 @@ class DewarpGUI:
         if self.transformed_image is None:
             return
 
-        # Convert BGR to RGB
-        result_rgb = cv2.cvtColor(self.transformed_image, cv2.COLOR_BGR2RGB)
+        # cv3 already uses RGB (no conversion needed)
+        result_rgb = self.transformed_image
 
         # Scale to fit canvas - always scale down if needed, never scale up
         height, width = result_rgb.shape[:2]
@@ -616,7 +621,7 @@ class DewarpGUI:
         new_width = int(width * scale)
         new_height = int(height * scale)
 
-        result_display = cv2.resize(result_rgb, (new_width, new_height))
+        result_display = cv3.resize(result_rgb, new_width, new_height)
 
         # Center in canvas
         canvas_image = np.full((self.canvas_height, self.canvas_width, 3), 64, dtype=np.uint8)
@@ -652,7 +657,8 @@ class DewarpGUI:
         )
 
         if file_path:
-            cv2.imwrite(file_path, self.transformed_image)
+            # cv3.imwrite expects RGB, which is what we have
+            cv3.imwrite(file_path, self.transformed_image)
             self.status_label.config(text=f"Image saved to {file_path}")
 
 

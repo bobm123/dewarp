@@ -121,3 +121,7 @@ dmypy.json
 # output/
 # *_output.*
 # *_transformed.*
+
+#AI related
+claude.md
+

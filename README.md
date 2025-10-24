@@ -1,6 +1,6 @@
 # Dewarp
 
-An interactive perspective transform tool for correcting image distortion using OpenCV.
+An interactive perspective transform tool for correcting image distortion using cv3 (Pythonic OpenCV wrapper).
 
 ## Features
 
@@ -17,7 +17,7 @@ An interactive perspective transform tool for correcting image distortion using 
 ## Requirements
 
 ```bash
-pip install opencv-python numpy pillow
+pip install cv3 numpy pillow
 ```
 
 ## Usage
@@ -96,4 +96,4 @@ Example: 210mm @ 300 DPI = 2480 pixels
 
 ## How It Works
 
-The application uses OpenCV's perspective transform (`cv2.getPerspectiveTransform` and `cv2.warpPerspective`) to convert a quadrilateral region into a rectangle. This corrects for camera angles and perspective distortion, making it ideal for scanning documents, receipts, whiteboards, and more.
+The application uses cv3 (a Pythonic wrapper for OpenCV) perspective transform functions (`cv3.getPerspectiveTransform` and `cv3.warpPerspective`) to convert a quadrilateral region into a rectangle. This corrects for camera angles and perspective distortion, making it ideal for scanning documents, receipts, whiteboards, and more.
