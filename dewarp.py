@@ -41,6 +41,8 @@ class DewarpGUI:
 
         # DPI for mm conversion (default 300 DPI)
         self.dpi = 300
+        self.dpi_var = tk.StringVar(value="300")
+        self.dpi_var.trace_add('write', self.on_dpi_changed)
 
         # Track if user has manually set dimensions
         self.dimensions_manually_set = False
@@ -54,64 +56,35 @@ class DewarpGUI:
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
 
-        # Use 45% of screen width for each canvas, 70% of screen height
+        # Use 45% of screen width for each canvas, 75% of screen height
         self.canvas_width = int(screen_width * 0.45)
-        self.canvas_height = int(screen_height * 0.7)
+        self.canvas_height = int(screen_height * 0.75)
 
         # Set minimum sizes
         self.canvas_width = max(400, self.canvas_width)
         self.canvas_height = max(300, self.canvas_height)
 
-        # Control Panel
-        control_frame = ttk.Frame(self.root, padding="10")
-        control_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Menu Bar
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
 
-        # Row 0 - Main controls
-        ttk.Button(control_frame, text="Load Image", command=self.load_image).grid(row=0, column=0, padx=5)
-        ttk.Button(control_frame, text="Reset Points", command=self.reset_points).grid(row=0, column=1, padx=5)
+        # File Menu
+        self.file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="File", menu=self.file_menu)
+        self.file_menu.add_command(label="Load Image...", command=self.load_image, accelerator="Ctrl+O")
+        self.file_menu.add_command(label="Save Result...", command=self.save_image, accelerator="Ctrl+S", state=tk.DISABLED)
+        self.file_menu.add_separator()
+        self.file_menu.add_command(label="Preferences...", command=self.show_preferences)
+        self.file_menu.add_separator()
+        self.file_menu.add_command(label="Exit", command=self.root.quit, accelerator="Alt+F4")
 
-        self.transform_btn = ttk.Button(control_frame, text="Apply Transform", command=self.apply_transform, state=tk.DISABLED)
-        self.transform_btn.grid(row=0, column=2, padx=5)
-
-        self.save_btn = ttk.Button(control_frame, text="Save Result", command=self.save_image, state=tk.DISABLED)
-        self.save_btn.grid(row=0, column=3, padx=5)
-
-        # Zoom controls
-        ttk.Label(control_frame, text="Zoom:").grid(row=0, column=4, padx=(20, 5))
-        ttk.Button(control_frame, text="+", command=self.zoom_in, width=3).grid(row=0, column=5, padx=2)
-        ttk.Button(control_frame, text="-", command=self.zoom_out, width=3).grid(row=0, column=6, padx=2)
-        ttk.Button(control_frame, text="Fit", command=self.zoom_fit, width=4).grid(row=0, column=7, padx=2)
-
-        self.zoom_label = ttk.Label(control_frame, text="100%", width=6)
-        self.zoom_label.grid(row=0, column=8, padx=5)
-
-        # Row 1 - Dimension controls
-        ttk.Label(control_frame, text="Output Dimensions:").grid(row=1, column=0, padx=5, pady=(10, 5), sticky=tk.W)
-
-        ttk.Label(control_frame, text="Width (mm):").grid(row=1, column=1, padx=5, sticky=tk.E)
-        self.width_var = tk.StringVar(value="")  # Empty until points selected
-        self.width_var.trace_add('write', self.on_dimension_changed)
-        self.width_entry = ttk.Entry(control_frame, textvariable=self.width_var, width=8)
-        self.width_entry.grid(row=1, column=2, padx=5)
-
-        ttk.Label(control_frame, text="Height (mm):").grid(row=1, column=3, padx=5, sticky=tk.E)
-        self.height_var = tk.StringVar(value="")  # Empty until points selected
-        self.height_var.trace_add('write', self.on_dimension_changed)
-        self.height_entry = ttk.Entry(control_frame, textvariable=self.height_var, width=8)
-        self.height_entry.grid(row=1, column=4, padx=5)
-
-        ttk.Label(control_frame, text="DPI:").grid(row=1, column=5, padx=5, sticky=tk.E)
-        self.dpi_var = tk.StringVar(value="300")
-        self.dpi_entry = ttk.Entry(control_frame, textvariable=self.dpi_var, width=6)
-        self.dpi_entry.grid(row=1, column=6, padx=5)
-
-        # Status Label
-        self.status_label = ttk.Label(control_frame, text="Load an image to begin")
-        self.status_label.grid(row=2, column=0, columnspan=7, pady=10)
+        # Bind keyboard shortcuts
+        self.root.bind('<Control-o>', lambda e: self.load_image())
+        self.root.bind('<Control-s>', lambda e: self.save_image() if self.transformed_image else None)
 
         # Canvas Frame
         canvas_container = ttk.Frame(self.root)
-        canvas_container.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        canvas_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         # Main Canvas for original image
         left_frame = ttk.Frame(canvas_container)
@@ -121,6 +94,24 @@ class DewarpGUI:
                                width=self.canvas_width, height=self.canvas_height,
                                highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=False)
+
+        # Action buttons overlay (upper left corner of left canvas)
+        action_overlay = ttk.Frame(left_frame, relief=tk.RAISED, borderwidth=1)
+        action_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
+
+        ttk.Button(action_overlay, text="Reset", command=self.reset_points, width=6).pack(side=tk.LEFT, padx=1)
+        self.transform_btn = ttk.Button(action_overlay, text="Apply", command=self.apply_transform, state=tk.DISABLED, width=6)
+        self.transform_btn.pack(side=tk.LEFT, padx=1)
+
+        # Zoom controls overlay (upper right corner of left canvas)
+        zoom_overlay = ttk.Frame(left_frame, relief=tk.RAISED, borderwidth=1)
+        zoom_overlay.place(relx=1.0, rely=0.0, x=-5, y=5, anchor=tk.NE)
+
+        ttk.Button(zoom_overlay, text="+", command=self.zoom_in, width=3).pack(side=tk.LEFT, padx=1)
+        ttk.Button(zoom_overlay, text="-", command=self.zoom_out, width=3).pack(side=tk.LEFT, padx=1)
+        ttk.Button(zoom_overlay, text="Fit", command=self.zoom_fit, width=4).pack(side=tk.LEFT, padx=1)
+        self.zoom_label = ttk.Label(zoom_overlay, text="100%", width=5)
+        self.zoom_label.pack(side=tk.LEFT, padx=3)
 
         # Bind events
         self.canvas.bind("<Button-1>", self.on_canvas_click)
@@ -141,9 +132,36 @@ class DewarpGUI:
         self.result_canvas.pack(fill=tk.BOTH, expand=False)
         self.result_canvas.bind("<Configure>", self.on_result_canvas_resize)
 
+        # Dimension controls overlay (upper left corner of right canvas)
+        dimensions_overlay = ttk.Frame(right_frame, relief=tk.RAISED, borderwidth=1, padding="5")
+        dimensions_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
+
+        ttk.Label(dimensions_overlay, text="Width (mm):", font=('TkDefaultFont', 8)).grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
+        self.width_var = tk.StringVar(value="")  # Empty until points selected
+        self.width_var.trace_add('write', self.on_dimension_changed)
+        self.width_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=1, width=8)
+        self.width_spinbox.grid(row=0, column=1, padx=3)
+
+        ttk.Label(dimensions_overlay, text="Height (mm):", font=('TkDefaultFont', 8)).grid(row=0, column=2, sticky=tk.E, padx=(5, 3))
+        self.height_var = tk.StringVar(value="")  # Empty until points selected
+        self.height_var.trace_add('write', self.on_dimension_changed)
+        self.height_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8)
+        self.height_spinbox.grid(row=0, column=3, padx=3)
+
+        # Status Bar at bottom
+        status_frame = ttk.Frame(self.root, relief=tk.SUNKEN, padding="2")
+        status_frame.grid(row=1, column=0, sticky=(tk.W, tk.E))
+
+        self.status_label = ttk.Label(status_frame, text="Load an image to begin", anchor=tk.W)
+        self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # DPI display on the right side of status bar
+        self.dpi_display_label = ttk.Label(status_frame, text="DPI: 300", anchor=tk.E)
+        self.dpi_display_label.pack(side=tk.RIGHT, padx=10)
+
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(1, weight=1)
+        self.root.rowconfigure(0, weight=1)
         canvas_container.columnconfigure(0, weight=1)
         canvas_container.columnconfigure(1, weight=1)
         canvas_container.rowconfigure(0, weight=1)
@@ -161,6 +179,64 @@ class DewarpGUI:
         # Only mark as manually set if we're not programmatically updating
         if not self._updating_dimensions:
             self.dimensions_manually_set = True
+
+    def on_dpi_changed(self, *args):
+        """Called when DPI is modified"""
+        try:
+            dpi_value = int(self.dpi_var.get())
+            self.dpi_display_label.config(text=f"DPI: {dpi_value}")
+        except (ValueError, tk.TclError, AttributeError):
+            # Ignore errors during initialization or invalid values
+            pass
+
+    def show_preferences(self):
+        """Show the preferences dialog"""
+        # Create modal dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Preferences")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center the dialog
+        dialog_width = 300
+        dialog_height = 150
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog_width // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog_height // 2)
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        dialog.resizable(False, False)
+
+        # Content frame
+        content_frame = ttk.Frame(dialog, padding="20")
+        content_frame.pack(fill=tk.BOTH, expand=True)
+
+        # DPI Setting
+        ttk.Label(content_frame, text="DPI (Dots Per Inch):").grid(row=0, column=0, sticky=tk.W, pady=10)
+        dpi_entry = ttk.Entry(content_frame, textvariable=self.dpi_var, width=10)
+        dpi_entry.grid(row=0, column=1, padx=10, pady=10)
+        ttk.Label(content_frame, text="(Default: 300)").grid(row=1, column=0, columnspan=2, sticky=tk.W)
+
+        # Button frame
+        button_frame = ttk.Frame(content_frame)
+        button_frame.grid(row=2, column=0, columnspan=2, pady=(20, 0))
+
+        def on_ok():
+            # Validate DPI value
+            try:
+                dpi_value = int(self.dpi_var.get())
+                if dpi_value < 1 or dpi_value > 9999:
+                    raise ValueError("DPI must be between 1 and 9999")
+            except ValueError:
+                self.dpi_var.set("300")
+            dialog.destroy()
+
+        def on_cancel():
+            dialog.destroy()
+
+        ttk.Button(button_frame, text="OK", command=on_ok, width=10).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=on_cancel, width=10).pack(side=tk.LEFT, padx=5)
+
+        # Wait for the dialog to close
+        self.root.wait_window(dialog)
 
     def zoom_in(self, center_x=None, center_y=None):
         """Zoom in by 20%, centered on given point"""
@@ -489,7 +565,7 @@ class DewarpGUI:
         self.points = []
         self.transformed_image = None
         self.transform_btn.config(state=tk.DISABLED)
-        self.save_btn.config(state=tk.DISABLED)
+        self.file_menu.entryconfig("Save Result...", state=tk.DISABLED)
         self.result_canvas.delete("all")
 
         # Clear dimension fields and reset manual flag
@@ -602,7 +678,7 @@ class DewarpGUI:
         # Display result
         self.display_result()
         self.status_label.config(text=f"Transform applied! Output: {width_mm}×{height_mm}mm @ {dpi}DPI ({output_width}×{output_height}px)")
-        self.save_btn.config(state=tk.NORMAL)
+        self.file_menu.entryconfig("Save Result...", state=tk.NORMAL)
 
     def display_result(self):
         if self.transformed_image is None:
