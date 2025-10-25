@@ -44,6 +44,9 @@ class DewarpGUI:
         self.dpi_var = tk.StringVar(value="300")
         self.dpi_var.trace_add('write', self.on_dpi_changed)
 
+        # Crop mode (True = crop to points, False = transform entire image)
+        self.crop_image = tk.BooleanVar(value=True)
+
         # Track if user has manually set dimensions
         self.dimensions_manually_set = False
         self._updating_dimensions = False  # Flag to prevent callback during auto-update
@@ -198,8 +201,8 @@ class DewarpGUI:
         dialog.grab_set()
 
         # Center the dialog
-        dialog_width = 300
-        dialog_height = 150
+        dialog_width = 350
+        dialog_height = 200
         x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog_width // 2)
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog_height // 2)
         dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
@@ -215,9 +218,17 @@ class DewarpGUI:
         dpi_entry.grid(row=0, column=1, padx=10, pady=10)
         ttk.Label(content_frame, text="(Default: 300)").grid(row=1, column=0, columnspan=2, sticky=tk.W)
 
+        # Crop Mode Setting
+        crop_check = ttk.Checkbutton(
+            content_frame,
+            text="Crop Image",
+            variable=self.crop_image
+        )
+        crop_check.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(15, 5))
+
         # Button frame
         button_frame = ttk.Frame(content_frame)
-        button_frame.grid(row=2, column=0, columnspan=2, pady=(20, 0))
+        button_frame.grid(row=3, column=0, columnspan=2, pady=(20, 0))
 
         def on_ok():
             # Validate DPI value
@@ -647,37 +658,91 @@ class DewarpGUI:
         rect = self.order_points(self.points)
         (tl, tr, br, bl) = rect
 
-        # Get dimensions in mm and convert to pixels
+        # Get DPI
         try:
-            width_mm = float(self.width_var.get())
-            height_mm = float(self.height_var.get())
             dpi = int(self.dpi_var.get())
         except ValueError:
-            self.status_label.config(text="Invalid dimensions or DPI")
-            return
+            dpi = 300
 
-        # Convert mm to pixels
-        output_width = self.mm_to_pixels(width_mm)
-        output_height = self.mm_to_pixels(height_mm)
+        # Check crop mode
+        if not self.crop_image.get():
+            # Transform entire image mode (crop unchecked)
+            # Use original image dimensions for output
+            img_height, img_width = self.original_image.shape[:2]
+            output_width = img_width
+            output_height = img_height
 
-        # Destination points
-        dst = np.array([
-            [0, 0],
-            [output_width - 1, 0],
-            [output_width - 1, output_height - 1],
-            [0, output_height - 1]], dtype="float32")
+            # Get dimensions in mm and convert to pixels for the selected region
+            try:
+                width_mm = float(self.width_var.get())
+                height_mm = float(self.height_var.get())
+            except ValueError:
+                self.status_label.config(text="Invalid dimensions")
+                return
 
-        # Compute perspective transform - cv3 doesn't have these, use cv2
-        M = cv2.getPerspectiveTransform(rect, dst)
-        # Note: cv2.warpPerspective expects BGR, but we need to work with RGB
-        # Convert to BGR for warpPerspective, then back to RGB
-        original_bgr = cv2.cvtColor(self.original_image, cv2.COLOR_RGB2BGR)
-        transformed_bgr = cv2.warpPerspective(original_bgr, M, (output_width, output_height))
-        self.transformed_image = cv2.cvtColor(transformed_bgr, cv2.COLOR_BGR2RGB)
+            # Convert mm to pixels for the quadrilateral
+            quad_width = self.mm_to_pixels(width_mm)
+            quad_height = self.mm_to_pixels(height_mm)
+
+            # Calculate where the corrected quadrilateral should be positioned
+            # Center it in the output image
+            offset_x = (output_width - quad_width) // 2
+            offset_y = (output_height - quad_height) // 2
+
+            # Destination points for the quadrilateral (centered)
+            dst = np.array([
+                [offset_x, offset_y],
+                [offset_x + quad_width - 1, offset_y],
+                [offset_x + quad_width - 1, offset_y + quad_height - 1],
+                [offset_x, offset_y + quad_height - 1]], dtype="float32")
+
+            # Compute perspective transform
+            M = cv2.getPerspectiveTransform(rect, dst)
+
+            # Convert to BGR for warpPerspective, then back to RGB
+            original_bgr = cv2.cvtColor(self.original_image, cv2.COLOR_RGB2BGR)
+            transformed_bgr = cv2.warpPerspective(original_bgr, M, (output_width, output_height))
+            self.transformed_image = cv2.cvtColor(transformed_bgr, cv2.COLOR_BGR2RGB)
+
+            # Calculate output dimensions in mm
+            output_width_mm = (output_width / dpi) * 25.4
+            output_height_mm = (output_height / dpi) * 25.4
+
+            status_msg = f"Transform applied! Output: {output_width_mm:.0f}×{output_height_mm:.0f}mm @ {dpi}DPI ({output_width}×{output_height}px) [Full image]"
+        else:
+            # Crop to selected region mode (original behavior)
+            # Get dimensions in mm and convert to pixels
+            try:
+                width_mm = float(self.width_var.get())
+                height_mm = float(self.height_var.get())
+            except ValueError:
+                self.status_label.config(text="Invalid dimensions")
+                return
+
+            # Convert mm to pixels
+            output_width = self.mm_to_pixels(width_mm)
+            output_height = self.mm_to_pixels(height_mm)
+
+            # Destination points
+            dst = np.array([
+                [0, 0],
+                [output_width - 1, 0],
+                [output_width - 1, output_height - 1],
+                [0, output_height - 1]], dtype="float32")
+
+            # Compute perspective transform
+            M = cv2.getPerspectiveTransform(rect, dst)
+
+            # Convert to BGR for warpPerspective, then back to RGB
+            original_bgr = cv2.cvtColor(self.original_image, cv2.COLOR_RGB2BGR)
+            transformed_bgr = cv2.warpPerspective(original_bgr, M, (output_width, output_height))
+            self.transformed_image = cv2.cvtColor(transformed_bgr, cv2.COLOR_BGR2RGB)
+
+            status_msg = f"Transform applied! Output: {width_mm}×{height_mm}mm @ {dpi}DPI ({output_width}×{output_height}px)"
 
         # Display result
         self.display_result()
-        self.status_label.config(text=f"Transform applied! Output: {width_mm}×{height_mm}mm @ {dpi}DPI ({output_width}×{output_height}px)")
+        self.status_label.config(text=status_msg)
         self.file_menu.entryconfig("Save Result...", state=tk.NORMAL)
 
     def display_result(self):
