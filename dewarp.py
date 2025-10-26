@@ -14,7 +14,7 @@ from PIL import Image, ImageTk
 
 
 class DewarpGUI:
-    def __init__(self, root):
+    def __init__(self, root, dpi=300, units="mm", crop=False):
         self.root = root
         self.root.title("Dewarp")
 
@@ -39,13 +39,17 @@ class DewarpGUI:
         self.panning = False
         self.drag_start = None
 
-        # DPI for mm conversion (default 300 DPI)
-        self.dpi = 300
-        self.dpi_var = tk.StringVar(value="300")
+        # DPI for mm conversion (from command line or default 300 DPI)
+        self.dpi = dpi
+        self.dpi_var = tk.StringVar(value=str(dpi))
         self.dpi_var.trace_add('write', self.on_dpi_changed)
 
-        # Crop mode (True = crop to points, False = transform entire image)
-        self.crop_image = tk.BooleanVar(value=True)
+        # Units preference (from command line or default mm)
+        self.units = tk.StringVar(value=units)
+        self.units.trace_add('write', self.on_units_changed)
+
+        # Crop mode (from command line or default False = transform entire image)
+        self.crop_image = tk.BooleanVar(value=crop)
 
         # Track if user has manually set dimensions
         self.dimensions_manually_set = False
@@ -139,13 +143,15 @@ class DewarpGUI:
         dimensions_overlay = ttk.Frame(right_frame, relief=tk.RAISED, borderwidth=1, padding="5")
         dimensions_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
 
-        ttk.Label(dimensions_overlay, text="Width (mm):", font=('TkDefaultFont', 8)).grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
+        self.width_label = ttk.Label(dimensions_overlay, text="Width (mm):", font=('TkDefaultFont', 8))
+        self.width_label.grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
         self.width_var = tk.StringVar(value="")  # Empty until points selected
         self.width_var.trace_add('write', self.on_dimension_changed)
         self.width_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=1, width=8)
         self.width_spinbox.grid(row=0, column=1, padx=3)
 
-        ttk.Label(dimensions_overlay, text="Height (mm):", font=('TkDefaultFont', 8)).grid(row=0, column=2, sticky=tk.E, padx=(5, 3))
+        self.height_label = ttk.Label(dimensions_overlay, text="Height (mm):", font=('TkDefaultFont', 8))
+        self.height_label.grid(row=0, column=2, sticky=tk.E, padx=(5, 3))
         self.height_var = tk.StringVar(value="")  # Empty until points selected
         self.height_var.trace_add('write', self.on_dimension_changed)
         self.height_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8)
@@ -169,13 +175,37 @@ class DewarpGUI:
         canvas_container.columnconfigure(1, weight=1)
         canvas_container.rowconfigure(0, weight=1)
 
-    def mm_to_pixels(self, mm):
-        """Convert millimeters to pixels based on DPI"""
+    def units_to_pixels(self, value):
+        """Convert value in current units to pixels based on DPI"""
         try:
             dpi = int(self.dpi_var.get())
         except ValueError:
             dpi = 300
-        return int((mm / 25.4) * dpi)
+
+        units = self.units.get()
+
+        if units == "pixels":
+            return int(value)
+        elif units == "inches":
+            return int(value * dpi)
+        else:  # mm
+            return int((value / 25.4) * dpi)
+
+    def pixels_to_units(self, pixels):
+        """Convert pixels to current units based on DPI"""
+        try:
+            dpi = int(self.dpi_var.get())
+        except ValueError:
+            dpi = 300
+
+        units = self.units.get()
+
+        if units == "pixels":
+            return pixels
+        elif units == "inches":
+            return pixels / dpi
+        else:  # mm
+            return (pixels / dpi) * 25.4
 
     def on_dimension_changed(self, *args):
         """Called when width or height field is modified"""
@@ -192,6 +222,24 @@ class DewarpGUI:
             # Ignore errors during initialization or invalid values
             pass
 
+    def on_units_changed(self, *args):
+        """Called when units preference is modified"""
+        try:
+            units = self.units.get()
+            # Update dimension labels
+            if units == "pixels":
+                self.width_label.config(text="Width (px):")
+                self.height_label.config(text="Height (px):")
+            elif units == "inches":
+                self.width_label.config(text="Width (in):")
+                self.height_label.config(text="Height (in):")
+            else:  # mm
+                self.width_label.config(text="Width (mm):")
+                self.height_label.config(text="Height (mm):")
+        except (tk.TclError, AttributeError):
+            # Ignore errors during initialization
+            pass
+
     def show_preferences(self):
         """Show the preferences dialog"""
         # Create modal dialog
@@ -202,7 +250,7 @@ class DewarpGUI:
 
         # Center the dialog
         dialog_width = 350
-        dialog_height = 200
+        dialog_height = 250
         x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog_width // 2)
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog_height // 2)
         dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
@@ -218,17 +266,25 @@ class DewarpGUI:
         dpi_entry.grid(row=0, column=1, padx=10, pady=10)
         ttk.Label(content_frame, text="(Default: 300)").grid(row=1, column=0, columnspan=2, sticky=tk.W)
 
+        # Units Setting
+        ttk.Label(content_frame, text="Measurement Units:").grid(row=2, column=0, sticky=tk.W, pady=(10, 5))
+        units_frame = ttk.Frame(content_frame)
+        units_frame.grid(row=2, column=1, sticky=tk.W, pady=(10, 5))
+        ttk.Radiobutton(units_frame, text="mm", variable=self.units, value="mm").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(units_frame, text="inches", variable=self.units, value="inches").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(units_frame, text="pixels", variable=self.units, value="pixels").pack(side=tk.LEFT, padx=5)
+
         # Crop Mode Setting
         crop_check = ttk.Checkbutton(
             content_frame,
             text="Crop Image",
             variable=self.crop_image
         )
-        crop_check.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(15, 5))
+        crop_check.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(15, 5))
 
         # Button frame
         button_frame = ttk.Frame(content_frame)
-        button_frame.grid(row=3, column=0, columnspan=2, pady=(20, 0))
+        button_frame.grid(row=4, column=0, columnspan=2, pady=(20, 0))
 
         def on_ok():
             # Validate DPI value
@@ -632,21 +688,21 @@ class DewarpGUI:
         avg_width_pixels = (top_width + bottom_width) / 2.0
         avg_height_pixels = (left_height + right_height) / 2.0
 
-        # Get current DPI setting
-        try:
-            dpi = int(self.dpi_var.get())
-        except ValueError:
-            dpi = 300
+        # Convert pixels to current units
+        width_value = self.pixels_to_units(avg_width_pixels)
+        height_value = self.pixels_to_units(avg_height_pixels)
 
-        # Convert pixels to millimeters: mm = (pixels / DPI) * 25.4
-        width_mm = (avg_width_pixels / dpi) * 25.4
-        height_mm = (avg_height_pixels / dpi) * 25.4
-
-        # Update the dimension fields (rounded to nearest mm)
+        # Update the dimension fields
         # Set flag to prevent triggering the manual edit callback
         self._updating_dimensions = True
-        self.width_var.set(str(int(round(width_mm))))
-        self.height_var.set(str(int(round(height_mm))))
+        if self.units.get() == "pixels":
+            # Pixels - show as integer
+            self.width_var.set(str(int(round(width_value))))
+            self.height_var.set(str(int(round(height_value))))
+        else:
+            # mm or inches - show with 1 decimal place
+            self.width_var.set(f"{width_value:.1f}")
+            self.height_var.set(f"{height_value:.1f}")
         self._updating_dimensions = False
 
     def apply_transform(self):
@@ -665,38 +721,75 @@ class DewarpGUI:
             dpi = 300
 
         # Check crop mode
-        if not self.crop_image.get():
+        crop_enabled = self.crop_image.get()
+        print(f"DEBUG: crop_image.get() = {crop_enabled}")
+        if not crop_enabled:
             # Transform entire image mode (crop unchecked)
-            # Use original image dimensions for output
-            img_height, img_width = self.original_image.shape[:2]
-            output_width = img_width
-            output_height = img_height
+            print("DEBUG: Using FULL IMAGE mode (no cropping)")
 
-            # Get dimensions in mm and convert to pixels for the selected region
+            # Get dimensions from spinbox (user's real-world measurements)
             try:
-                width_mm = float(self.width_var.get())
-                height_mm = float(self.height_var.get())
+                width_value = float(self.width_var.get())
+                height_value = float(self.height_var.get())
             except ValueError:
                 self.status_label.config(text="Invalid dimensions")
                 return
 
-            # Convert mm to pixels for the quadrilateral
-            quad_width = self.mm_to_pixels(width_mm)
-            quad_height = self.mm_to_pixels(height_mm)
+            # Convert to pixels for the quadrilateral
+            quad_width = self.units_to_pixels(width_value)
+            quad_height = self.units_to_pixels(height_value)
 
-            # Calculate where the corrected quadrilateral should be positioned
-            # Center it in the output image
-            offset_x = (output_width - quad_width) // 2
-            offset_y = (output_height - quad_height) // 2
+            print(f"DEBUG: User specified quad dimensions: {quad_width}x{quad_height}px")
 
-            # Destination points for the quadrilateral (centered)
+            # Get original image dimensions
+            img_height, img_width = self.original_image.shape[:2]
+
+            # First, create a temporary transform to see where the image corners will end up
+            # Map the selected quad to origin with user's specified dimensions
+            temp_dst = np.array([
+                [0, 0],
+                [quad_width - 1, 0],
+                [quad_width - 1, quad_height - 1],
+                [0, quad_height - 1]], dtype="float32")
+
+            M_temp = cv2.getPerspectiveTransform(rect, temp_dst)
+
+            # Transform the four corners of the original image to see the bounding box
+            img_corners = np.array([
+                [0, 0],
+                [img_width - 1, 0],
+                [img_width - 1, img_height - 1],
+                [0, img_height - 1]], dtype="float32")
+
+            # Apply transform to each corner
+            transformed_corners = cv2.perspectiveTransform(img_corners.reshape(-1, 1, 2), M_temp).reshape(-1, 2)
+
+            # Find bounding box of transformed image
+            min_x = int(np.floor(transformed_corners[:, 0].min()))
+            max_x = int(np.ceil(transformed_corners[:, 0].max()))
+            min_y = int(np.floor(transformed_corners[:, 1].min()))
+            max_y = int(np.ceil(transformed_corners[:, 1].max()))
+
+            print(f"DEBUG: Transformed image bounds: x=[{min_x}, {max_x}], y=[{min_y}, {max_y}]")
+
+            # Calculate output canvas size
+            output_width = max_x - min_x
+            output_height = max_y - min_y
+
+            print(f"DEBUG: Output canvas size: {output_width}x{output_height}px")
+
+            # Adjust destination points to account for negative offsets
+            # This ensures the entire transformed image fits in the output
+            offset_x = -min_x
+            offset_y = -min_y
+
             dst = np.array([
                 [offset_x, offset_y],
                 [offset_x + quad_width - 1, offset_y],
                 [offset_x + quad_width - 1, offset_y + quad_height - 1],
                 [offset_x, offset_y + quad_height - 1]], dtype="float32")
 
-            # Compute perspective transform
+            # Compute final perspective transform
             M = cv2.getPerspectiveTransform(rect, dst)
 
             # Convert to BGR for warpPerspective, then back to RGB
@@ -708,20 +801,23 @@ class DewarpGUI:
             output_width_mm = (output_width / dpi) * 25.4
             output_height_mm = (output_height / dpi) * 25.4
 
-            status_msg = f"Transform applied! Output: {output_width_mm:.0f}×{output_height_mm:.0f}mm @ {dpi}DPI ({output_width}×{output_height}px) [Full image]"
+            # Get units abbreviation for display
+            units_abbr = "px" if self.units.get() == "pixels" else ("in" if self.units.get() == "inches" else "mm")
+            status_msg = f"Transform applied! Output: {output_width_mm:.0f}×{output_height_mm:.0f}mm @ {dpi}DPI ({output_width}×{output_height}px) [Full image, quad={width_value:.1f}×{height_value:.1f}{units_abbr}]"
         else:
             # Crop to selected region mode (original behavior)
-            # Get dimensions in mm and convert to pixels
+            print("DEBUG: Using CROP mode (crop to selected points)")
+            # Get dimensions in current units and convert to pixels
             try:
-                width_mm = float(self.width_var.get())
-                height_mm = float(self.height_var.get())
+                width_value = float(self.width_var.get())
+                height_value = float(self.height_var.get())
             except ValueError:
                 self.status_label.config(text="Invalid dimensions")
                 return
 
-            # Convert mm to pixels
-            output_width = self.mm_to_pixels(width_mm)
-            output_height = self.mm_to_pixels(height_mm)
+            # Convert to pixels
+            output_width = self.units_to_pixels(width_value)
+            output_height = self.units_to_pixels(height_value)
 
             # Destination points
             dst = np.array([
@@ -738,7 +834,9 @@ class DewarpGUI:
             transformed_bgr = cv2.warpPerspective(original_bgr, M, (output_width, output_height))
             self.transformed_image = cv2.cvtColor(transformed_bgr, cv2.COLOR_BGR2RGB)
 
-            status_msg = f"Transform applied! Output: {width_mm}×{height_mm}mm @ {dpi}DPI ({output_width}×{output_height}px)"
+            # Get units abbreviation for display
+            units_abbr = "px" if self.units.get() == "pixels" else ("in" if self.units.get() == "inches" else "mm")
+            status_msg = f"Transform applied! Output: {width_value:.1f}×{height_value:.1f}{units_abbr} @ {dpi}DPI ({output_width}×{output_height}px)"
 
         # Display result
         self.display_result()
@@ -752,23 +850,47 @@ class DewarpGUI:
         # cv3 already uses RGB (no conversion needed)
         result_rgb = self.transformed_image
 
+        # Get actual result canvas dimensions
+        self.result_canvas.update_idletasks()
+        result_canvas_width = self.result_canvas.winfo_width()
+        result_canvas_height = self.result_canvas.winfo_height()
+
+        # Fallback to default if canvas not yet realized
+        if result_canvas_width <= 1:
+            result_canvas_width = self.canvas_width
+        if result_canvas_height <= 1:
+            result_canvas_height = self.canvas_height
+
         # Scale to fit canvas - always scale down if needed, never scale up
         height, width = result_rgb.shape[:2]
 
-        scale_w = self.canvas_width / width
-        scale_h = self.canvas_height / height
-        scale = min(scale_w, scale_h)  # Remove the 1.0 cap to allow proper scaling
+        # Add small margin to ensure it fits (98% of available space)
+        scale_w = (result_canvas_width * 0.98) / width
+        scale_h = (result_canvas_height * 0.98) / height
+        scale = min(scale_w, scale_h, 1.0)  # Never scale up, always fit within canvas
 
         new_width = int(width * scale)
         new_height = int(height * scale)
 
+        # Ensure dimensions are at least 1 pixel
+        new_width = max(1, new_width)
+        new_height = max(1, new_height)
+
         result_display = cv3.resize(result_rgb, new_width, new_height)
 
         # Center in canvas
-        canvas_image = np.full((self.canvas_height, self.canvas_width, 3), 64, dtype=np.uint8)
-        y_offset = (self.canvas_height - new_height) // 2
-        x_offset = (self.canvas_width - new_width) // 2
-        canvas_image[y_offset:y_offset+new_height, x_offset:x_offset+new_width] = result_display
+        canvas_image = np.full((result_canvas_height, result_canvas_width, 3), 64, dtype=np.uint8)
+        y_offset = max(0, (result_canvas_height - new_height) // 2)
+        x_offset = max(0, (result_canvas_width - new_width) // 2)
+
+        # Place the scaled image (should always fit now, but add safety check)
+        y_end = min(y_offset + new_height, result_canvas_height)
+        x_end = min(x_offset + new_width, result_canvas_width)
+        result_h = y_end - y_offset
+        result_w = x_end - x_offset
+
+        if result_h > 0 and result_w > 0:
+            canvas_image[y_offset:y_end, x_offset:x_end] = result_display[:result_h, :result_w]
 
         # Convert to PhotoImage
         img_pil = Image.fromarray(canvas_image)
@@ -806,10 +928,15 @@ class DewarpGUI:
 def main():
     parser = argparse.ArgumentParser(description='Dewarp - Interactive Perspective Transform Tool')
     parser.add_argument('image', nargs='?', help='Image file to load on startup')
+    parser.add_argument('--dpi', type=int, default=300, help='DPI for dimension conversion (default: 300)')
+    parser.add_argument('--units', choices=['mm', 'inches', 'pixels'], default='mm',
+                        help='Measurement units for dimensions (default: mm)')
+    parser.add_argument('--crop', action='store_true',
+                        help='Enable crop mode (crop to selected points instead of transforming entire image)')
     args = parser.parse_args()
 
     root = tk.Tk()
-    app = DewarpGUI(root)
+    app = DewarpGUI(root, dpi=args.dpi, units=args.units, crop=args.crop)
 
     # Load image if provided via command line
     if args.image:

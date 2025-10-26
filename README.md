@@ -30,6 +30,24 @@ python dewarp.py
 
 # Or load an image directly
 python dewarp.py path/to/image.jpg
+
+# With custom preferences
+python dewarp.py --dpi 150 --units inches --crop path/to/image.jpg
+```
+
+### Command Line Options
+
+- `--dpi <value>`: Set DPI for dimension conversion (default: 300)
+- `--units <mm|inches|pixels>`: Set measurement units (default: mm)
+- `--crop`: Enable crop mode to crop to selected points (default: transform entire image)
+
+**Examples:**
+```bash
+# Use inches with 150 DPI
+python dewarp.py --units inches --dpi 150 image.jpg
+
+# Crop mode with pixels
+python dewarp.py --crop --units pixels image.jpg
 ```
 
 ### Steps
