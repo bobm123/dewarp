@@ -124,4 +124,13 @@ dmypy.json
 
 #AI related
 claude.md
+.claude/
 
+# Images
+images/
+
+# Icon preview (generated file)
+dewarp_icon_preview.png
+
+# Windows null file
+nul

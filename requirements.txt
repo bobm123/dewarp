@@ -1,0 +1,14 @@
+# Dewarp - Interactive Perspective Transform Tool
+# Python dependencies for running the application
+
+# OpenCV for advanced image processing (perspective transforms, color conversion)
+opencv-python>=4.8.0
+
+# cv3 for basic image I/O and drawing operations
+cv3>=1.0.0
+
+# NumPy for numerical operations and array handling
+numpy>=1.24.0
+
+# Pillow for GUI image display
+Pillow>=10.0.0

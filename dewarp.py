@@ -5,11 +5,11 @@ Features: Zoom, Pan, Drag-and-Drop points, Millimeter dimensions
 """
 
 import argparse
-import cv2  # Still needed for constants
-import cv3
+import cv2  # For perspective transforms, color conversion, and text rendering
+import cv3  # For basic I/O and drawing operations
 import numpy as np
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, ttk  # Convenience imports for dialogs and themed widgets
 from PIL import Image, ImageTk
 
 
@@ -504,10 +504,8 @@ class DewarpGUI:
                 pt2_x = int(self.points[next_i][0] * effective_scale + self.pan_offset[0])
                 pt2_y = int(self.points[next_i][1] * effective_scale + self.pan_offset[1])
 
-                # Only draw if within canvas bounds
-                if (0 <= pt1_x < self.canvas_width and 0 <= pt1_y < self.canvas_height and
-                    0 <= pt2_x < self.canvas_width and 0 <= pt2_y < self.canvas_height):
-                    cv3.line(canvas_image, pt1_x, pt1_y, pt2_x, pt2_y, color=(0, 255, 0), t=2)
+                # Draw line (OpenCV automatically clips to image bounds)
+                cv3.line(canvas_image, pt1_x, pt1_y, pt2_x, pt2_y, color=(0, 255, 0), t=2)
 
         # Draw points on top
         for i, pt in enumerate(self.points):
@@ -722,10 +720,8 @@ class DewarpGUI:
 
         # Check crop mode
         crop_enabled = self.crop_image.get()
-        print(f"DEBUG: crop_image.get() = {crop_enabled}")
         if not crop_enabled:
             # Transform entire image mode (crop unchecked)
-            print("DEBUG: Using FULL IMAGE mode (no cropping)")
 
             # Get dimensions from spinbox (user's real-world measurements)
             try:
@@ -738,8 +734,6 @@ class DewarpGUI:
             # Convert to pixels for the quadrilateral
             quad_width = self.units_to_pixels(width_value)
             quad_height = self.units_to_pixels(height_value)
-
-            print(f"DEBUG: User specified quad dimensions: {quad_width}x{quad_height}px")
 
             # Get original image dimensions
             img_height, img_width = self.original_image.shape[:2]
@@ -770,13 +764,9 @@ class DewarpGUI:
             min_y = int(np.floor(transformed_corners[:, 1].min()))
             max_y = int(np.ceil(transformed_corners[:, 1].max()))
 
-            print(f"DEBUG: Transformed image bounds: x=[{min_x}, {max_x}], y=[{min_y}, {max_y}]")
-
             # Calculate output canvas size
             output_width = max_x - min_x
             output_height = max_y - min_y
-
-            print(f"DEBUG: Output canvas size: {output_width}x{output_height}px")
 
             # Adjust destination points to account for negative offsets
             # This ensures the entire transformed image fits in the output
@@ -806,7 +796,6 @@ class DewarpGUI:
             status_msg = f"Transform applied! Output: {output_width_mm:.0f}×{output_height_mm:.0f}mm @ {dpi}DPI ({output_width}×{output_height}px) [Full image, quad={width_value:.1f}×{height_value:.1f}{units_abbr}]"
         else:
             # Crop to selected region mode (original behavior)
-            print("DEBUG: Using CROP mode (crop to selected points)")
             # Get dimensions in current units and convert to pixels
             try:
                 width_value = float(self.width_var.get())

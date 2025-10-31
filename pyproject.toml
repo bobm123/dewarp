@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dewarp"
+version = "1.0.0"
+description = "Interactive Perspective Transform Tool - Select 4 corner points and apply perspective transform with zoom, pan, and drag-and-drop functionality"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+keywords = ["image-processing", "perspective-transform", "opencv", "gui", "tkinter"]
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Multimedia :: Graphics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "opencv-python>=4.8.0",
+    "cv3>=1.0.0",
+    "numpy>=1.24.0",
+    "Pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+]
+
+[project.scripts]
+dewarp = "dewarp:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/dewarp"
+Repository = "https://github.com/yourusername/dewarp"
+Issues = "https://github.com/yourusername/dewarp/issues"
+
+[tool.setuptools]
+py-modules = ["dewarp"]
