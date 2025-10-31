@@ -21,7 +21,17 @@ class DewarpGUI:
         # Set window icon
         try:
             import os
-            icon_path = os.path.join(os.path.dirname(__file__), "assets", "dewarp.ico")
+            import sys
+
+            # Get the correct base path for both dev and PyInstaller bundled app
+            if getattr(sys, 'frozen', False):
+                # Running as PyInstaller bundle
+                base_path = sys._MEIPASS
+            else:
+                # Running in normal Python environment
+                base_path = os.path.dirname(os.path.abspath(__file__))
+
+            icon_path = os.path.join(base_path, "assets", "dewarp.ico")
             if os.path.exists(icon_path):
                 self.root.iconbitmap(icon_path)
         except Exception:

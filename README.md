@@ -1,6 +1,6 @@
 # Dewarp
 
-An interactive perspective transform tool for correcting image distortion. Select 4 corner points on a distorted image and dewarp will automatically straighten and correct the perspective.
+An interactive perspective transform tool for correcting image distortion. Select 4 corner points on a distorted image and dewarp will automatically straighten and correct the perspective. If real world dimensions (mm, inch or pixels) are known, they can be added on the right page.
 
 ![Dewarp Screenshot](assets/Clipboard01.png)
 
