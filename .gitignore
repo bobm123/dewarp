@@ -132,5 +132,10 @@ images/
 # Icon preview (generated file)
 dewarp_icon_preview.png
 
+# Test images (generated files)
+test_image_original.png
+test_image_warped.png
+test_image_metadata.json
+
 # Windows null file
 nul
