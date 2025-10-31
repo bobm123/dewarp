@@ -18,6 +18,15 @@ class DewarpGUI:
         self.root = root
         self.root.title("Dewarp")
 
+        # Set window icon
+        try:
+            import os
+            icon_path = os.path.join(os.path.dirname(__file__), "assets", "dewarp.ico")
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+        except Exception:
+            pass  # Use default icon if unable to load
+
         # State variables
         self.image = None
         self.display_image = None

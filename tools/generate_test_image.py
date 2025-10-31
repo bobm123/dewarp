@@ -113,8 +113,13 @@ box2 = draw_rotated_rectangle(image, rect2_center, rect2_width_px, rect2_height_
 
 print(f"  [OK] Drew rectangle 2: 7x5 cm ({rect2_width_px}x{rect2_height_px} px) at {rect2_angle} deg")
 
+# Create test directory if it doesn't exist
+import os
+test_dir = os.path.join(os.path.dirname(__file__), "..", "test")
+os.makedirs(test_dir, exist_ok=True)
+
 # Save the original (unwarped) image
-original_path = "test_image_original.png"
+original_path = os.path.join(test_dir, "test_image_original.png")
 cv2.imwrite(original_path, image)
 print(f"\n[OK] Saved original image: {original_path}")
 
@@ -154,7 +159,7 @@ warped_image = cv2.warpPerspective(image, transform_matrix, (WIDTH_PX, HEIGHT_PX
                                    borderValue=DARK_GREY_BG)
 
 # Save warped image
-warped_path = "test_image_warped.png"
+warped_path = os.path.join(test_dir, "test_image_warped.png")
 cv2.imwrite(warped_path, warped_image)
 print(f"[OK] Saved warped image: {warped_path}")
 
@@ -198,7 +203,7 @@ metadata = {
     }
 }
 
-metadata_path = "test_image_metadata.json"
+metadata_path = os.path.join(test_dir, "test_image_metadata.json")
 with open(metadata_path, 'w') as f:
     json.dump(metadata, f, indent=2)
 
@@ -213,11 +218,11 @@ print(np.linalg.inv(transform_matrix))
 print("\n" + "="*60)
 print("Test image generation complete!")
 print("="*60)
-print(f"\nFiles created:")
-print(f"  1. {original_path} - Original unwarped image")
-print(f"  2. {warped_path} - Pre-warped test image")
-print(f"  3. {metadata_path} - Complete metadata and transform matrices")
+print(f"\nFiles created in test/ directory:")
+print(f"  1. test_image_original.png - Original unwarped image")
+print(f"  2. test_image_warped.png - Pre-warped test image")
+print(f"  3. test_image_metadata.json - Complete metadata and transform matrices")
 print(f"\nTo test dewarp application:")
-print(f"  python dewarp.py {warped_path}")
+print(f"  python dewarp.py test/test_image_warped.png")
 print(f"\nExpected result: Selecting the 4 corners should unwarp the image")
 print(f"back to the original rectangular shape.")
