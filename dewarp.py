@@ -413,12 +413,18 @@ class DewarpGUI:
         else:  # mm
             return int((value / 25.4) * dpi)
 
-    def pixels_to_units(self, pixels):
-        """Convert pixels to current units based on DPI"""
-        try:
-            dpi = int(self.dpi_var.get())
-        except ValueError:
-            dpi = 300
+    def pixels_to_units(self, pixels, dpi=None):
+        """Convert pixels to current units based on DPI
+
+        Args:
+            pixels: pixel value to convert
+            dpi: DPI to use for conversion (defaults to output DPI)
+        """
+        if dpi is None:
+            try:
+                dpi = int(self.dpi_var.get())
+            except ValueError:
+                dpi = 300
 
         units = self.units.get()
 
@@ -683,7 +689,7 @@ class DewarpGUI:
 
         # Display the image
         self.display_on_canvas()
-        self.status_label.config(text="Click 4 corners (drag to adjust). Drag to pan, scroll to zoom.")
+        self.status_label.config(text=f"Image loaded (Input DPI: {self.input_dpi}). Click 4 corners (drag to adjust). Drag to pan, scroll to zoom.")
 
     def display_on_canvas(self):
         if self.image is None:
@@ -853,9 +859,9 @@ class DewarpGUI:
         avg_width_pixels = (top_width + bottom_width) / 2.0
         avg_height_pixels = (left_height + right_height) / 2.0
 
-        # Convert pixels to current units
-        width_value = self.pixels_to_units(avg_width_pixels)
-        height_value = self.pixels_to_units(avg_height_pixels)
+        # Convert pixels to current units using input image DPI
+        width_value = self.pixels_to_units(avg_width_pixels, dpi=self.input_dpi)
+        height_value = self.pixels_to_units(avg_height_pixels, dpi=self.input_dpi)
 
         # Update the dimension fields
         # Set flag to prevent triggering the manual edit callback
