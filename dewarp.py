@@ -1076,9 +1076,18 @@ class DewarpGUI:
         )
 
         if file_path:
-            # cv3.imwrite expects RGB, which is what we have
-            cv3.imwrite(file_path, self.transformed_image)
-            self.status_label.config(text=f"Image saved to {file_path}")
+            # Get output DPI
+            try:
+                dpi = int(self.dpi_var.get())
+            except ValueError:
+                dpi = 300
+
+            # Convert numpy array (RGB) to PIL Image
+            pil_image = Image.fromarray(self.transformed_image)
+
+            # Save with DPI metadata
+            pil_image.save(file_path, dpi=(dpi, dpi))
+            self.status_label.config(text=f"Image saved to {file_path} @ {dpi} DPI")
 
 
 def main():
