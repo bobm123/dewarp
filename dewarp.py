@@ -45,7 +45,7 @@ class DewarpGUI:
         self.points = []
         self.transformed_image = None
 
-        # Zoom and pan variables
+        # Zoom and pan variables (left canvas)
         self.zoom_level = 1.0
         self.pan_offset = [0.0, 0.0]
         self.base_scale_factor = 1.0
@@ -53,9 +53,16 @@ class DewarpGUI:
         self.canvas_height = 400  # Initial placeholder
         self.needs_initial_center = False
 
+        # Zoom and pan variables (right canvas)
+        self.result_zoom_level = 1.0
+        self.result_pan_offset = [0.0, 0.0]
+        self.result_base_scale_factor = 1.0
+        self.result_needs_initial_center = False
+
         # Drag state
         self.dragging_point = None
         self.panning = False
+        self.result_panning = False
         self.drag_start = None
 
         # DPI for mm conversion (from command line or default 300 DPI)
@@ -76,6 +83,10 @@ class DewarpGUI:
 
         # Setup UI
         self.setup_ui()
+
+        # Create context menu for result canvas
+        self.result_context_menu = tk.Menu(self.root, tearoff=0)
+        self.result_context_menu.add_command(label="Save Result...", command=self.save_image)
 
     def setup_ui(self):
         # Calculate canvas dimensions based on screen size
@@ -157,10 +168,25 @@ class DewarpGUI:
                                        highlightthickness=0)
         self.result_canvas.pack(fill=tk.BOTH, expand=False)
         self.result_canvas.bind("<Configure>", self.on_result_canvas_resize)
+        self.result_canvas.bind("<Button-1>", self.on_result_canvas_click)
+        self.result_canvas.bind("<B1-Motion>", self.on_result_canvas_drag)
+        self.result_canvas.bind("<ButtonRelease-1>", self.on_result_canvas_release)
+        self.result_canvas.bind("<Button-3>", self.on_result_canvas_right_click)
+        self.result_canvas.bind("<MouseWheel>", self.on_result_mouse_wheel)
 
         # Dimension controls overlay (upper left corner of right canvas)
         dimensions_overlay = ttk.Frame(right_frame, relief=tk.RAISED, borderwidth=1, padding="5")
         dimensions_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
+
+        # Zoom controls overlay for result canvas (upper right corner)
+        result_zoom_overlay = ttk.Frame(right_frame, relief=tk.RAISED, borderwidth=1)
+        result_zoom_overlay.place(relx=1.0, rely=0.0, x=-5, y=5, anchor=tk.NE)
+
+        ttk.Button(result_zoom_overlay, text="+", command=self.result_zoom_in, width=3).pack(side=tk.LEFT, padx=1)
+        ttk.Button(result_zoom_overlay, text="-", command=self.result_zoom_out, width=3).pack(side=tk.LEFT, padx=1)
+        ttk.Button(result_zoom_overlay, text="Fit", command=self.result_zoom_fit, width=4).pack(side=tk.LEFT, padx=1)
+        self.result_zoom_label = ttk.Label(result_zoom_overlay, text="100%", width=5)
+        self.result_zoom_label.pack(side=tk.LEFT, padx=3)
 
         self.width_label = ttk.Label(dimensions_overlay, text="Width (mm):", font=('TkDefaultFont', 8))
         self.width_label.grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
@@ -407,7 +433,72 @@ class DewarpGUI:
         """Handle result canvas resize events"""
         # Redisplay the result image if it exists
         if self.transformed_image is not None:
+            self.result_needs_initial_center = True
+            self.result_zoom_level = 1.0
             self.display_result()
+
+    def result_zoom_in(self, center_x=None, center_y=None):
+        """Zoom in on result canvas by 20%, centered on given point"""
+        if self.transformed_image is None:
+            return
+
+        # Get canvas dimensions
+        result_canvas_width = self.result_canvas.winfo_width()
+        result_canvas_height = self.result_canvas.winfo_height()
+
+        if center_x is None:
+            center_x = result_canvas_width / 2
+        if center_y is None:
+            center_y = result_canvas_height / 2
+
+        old_zoom = self.result_zoom_level
+        self.result_zoom_level = min(self.result_zoom_level * 1.2, 10.0)
+
+        # Adjust pan to keep the cursor position fixed
+        zoom_ratio = self.result_zoom_level / old_zoom
+        self.result_pan_offset[0] = center_x - (center_x - self.result_pan_offset[0]) * zoom_ratio
+        self.result_pan_offset[1] = center_y - (center_y - self.result_pan_offset[1]) * zoom_ratio
+
+        self.display_result()
+
+    def result_zoom_out(self, center_x=None, center_y=None):
+        """Zoom out on result canvas by 20%, centered on given point"""
+        if self.transformed_image is None:
+            return
+
+        # Get canvas dimensions
+        result_canvas_width = self.result_canvas.winfo_width()
+        result_canvas_height = self.result_canvas.winfo_height()
+
+        if center_x is None:
+            center_x = result_canvas_width / 2
+        if center_y is None:
+            center_y = result_canvas_height / 2
+
+        old_zoom = self.result_zoom_level
+        self.result_zoom_level = max(self.result_zoom_level / 1.2, 0.1)
+
+        # Adjust pan to keep the cursor position fixed
+        zoom_ratio = self.result_zoom_level / old_zoom
+        self.result_pan_offset[0] = center_x - (center_x - self.result_pan_offset[0]) * zoom_ratio
+        self.result_pan_offset[1] = center_y - (center_y - self.result_pan_offset[1]) * zoom_ratio
+
+        self.display_result()
+
+    def result_zoom_fit(self):
+        """Reset result canvas zoom to fit image"""
+        if self.transformed_image is None:
+            return
+
+        self.result_zoom_level = 1.0
+        self.result_pan_offset = [0.0, 0.0]
+        self.result_needs_initial_center = True
+        self.display_result()
+
+    def result_update_zoom_display(self):
+        """Update result zoom percentage label"""
+        zoom_pct = int(self.result_zoom_level * self.result_base_scale_factor * 100)
+        self.result_zoom_label.config(text=f"{zoom_pct}%")
 
     def on_canvas_right_click(self, event):
         """Start panning with right mouse button"""
@@ -585,10 +676,7 @@ class DewarpGUI:
             x = (event.x - self.pan_offset[0]) / effective_scale
             y = (event.y - self.pan_offset[1]) / effective_scale
 
-            # Clamp to image bounds
-            x = max(0, min(x, self.image.shape[1] - 1))
-            y = max(0, min(y, self.image.shape[0] - 1))
-
+            # Allow points beyond image boundaries (no clamping)
             self.points.append((x, y))
             self.display_on_canvas()
 
@@ -617,10 +705,7 @@ class DewarpGUI:
             x = (event.x - self.pan_offset[0]) / effective_scale
             y = (event.y - self.pan_offset[1]) / effective_scale
 
-            # Clamp to image bounds
-            x = max(0, min(x, self.image.shape[1] - 1))
-            y = max(0, min(y, self.image.shape[0] - 1))
-
+            # Allow points beyond image boundaries (no clamping)
             self.points[self.dragging_point] = (x, y)
             self.display_on_canvas()
         elif self.panning and self.drag_start:
@@ -846,6 +931,11 @@ class DewarpGUI:
             units_abbr = "px" if self.units.get() == "pixels" else ("in" if self.units.get() == "inches" else "mm")
             status_msg = f"Transform applied! Output: {width_value:.1f}×{height_value:.1f}{units_abbr} @ {dpi}DPI ({output_width}×{output_height}px)"
 
+        # Reset zoom and pan for new result
+        self.result_zoom_level = 1.0
+        self.result_pan_offset = [0.0, 0.0]
+        self.result_needs_initial_center = True
+
         # Display result
         self.display_result()
         self.status_label.config(text=status_msg)
@@ -869,36 +959,55 @@ class DewarpGUI:
         if result_canvas_height <= 1:
             result_canvas_height = self.canvas_height
 
-        # Scale to fit canvas - always scale down if needed, never scale up
+        # Get image dimensions
         height, width = result_rgb.shape[:2]
 
-        # Add small margin to ensure it fits (98% of available space)
-        scale_w = (result_canvas_width * 0.98) / width
-        scale_h = (result_canvas_height * 0.98) / height
-        scale = min(scale_w, scale_h, 1.0)  # Never scale up, always fit within canvas
+        # Calculate base scale to fit canvas (with small margin)
+        scale_w = result_canvas_width / width
+        scale_h = result_canvas_height / height
+        self.result_base_scale_factor = min(scale_w, scale_h) * 0.98  # 98% to ensure it fits
 
-        new_width = int(width * scale)
-        new_height = int(height * scale)
+        # Apply zoom
+        effective_scale = self.result_base_scale_factor * self.result_zoom_level
+
+        new_width = int(width * effective_scale)
+        new_height = int(height * effective_scale)
 
         # Ensure dimensions are at least 1 pixel
         new_width = max(1, new_width)
         new_height = max(1, new_height)
 
+        # Resize for display
         result_display = cv3.resize(result_rgb, new_width, new_height)
 
-        # Center in canvas
+        # Create canvas-sized image with background
         canvas_image = np.full((result_canvas_height, result_canvas_width, 3), 64, dtype=np.uint8)
-        y_offset = max(0, (result_canvas_height - new_height) // 2)
-        x_offset = max(0, (result_canvas_width - new_width) // 2)
 
-        # Place the scaled image (should always fit now, but add safety check)
-        y_end = min(y_offset + new_height, result_canvas_height)
-        x_end = min(x_offset + new_width, result_canvas_width)
-        result_h = y_end - y_offset
-        result_w = x_end - x_offset
+        # Center the image on initial load or fit
+        if self.result_needs_initial_center:
+            # Calculate centering offset to position image in middle of canvas
+            center_x = (result_canvas_width - new_width) / 2.0
+            center_y = (result_canvas_height - new_height) / 2.0
+            self.result_pan_offset = [center_x, center_y]
+            self.result_needs_initial_center = False
 
-        if result_h > 0 and result_w > 0:
-            canvas_image[y_offset:y_end, x_offset:x_end] = result_display[:result_h, :result_w]
+        # Calculate positions for placing the image on canvas
+        x_offset = int(max(0, self.result_pan_offset[0]))
+        y_offset = int(max(0, self.result_pan_offset[1]))
+
+        # Calculate which part of the display image to show
+        img_x_start = int(max(0, -self.result_pan_offset[0]))
+        img_y_start = int(max(0, -self.result_pan_offset[1]))
+
+        # Calculate how much of the image can fit on canvas
+        img_x_end = int(min(new_width, img_x_start + result_canvas_width - x_offset))
+        img_y_end = int(min(new_height, img_y_start + result_canvas_height - y_offset))
+
+        # Place the visible portion of the image on canvas
+        if img_y_end > img_y_start and img_x_end > img_x_start:
+            visible_portion = result_display[img_y_start:img_y_end, img_x_start:img_x_end]
+            h, w = visible_portion.shape[:2]
+            canvas_image[y_offset:y_offset+h, x_offset:x_offset+w] = visible_portion
 
         # Convert to PhotoImage
         img_pil = Image.fromarray(canvas_image)
@@ -907,6 +1016,55 @@ class DewarpGUI:
         # Update canvas
         self.result_canvas.delete("all")
         self.result_canvas.create_image(0, 0, anchor=tk.NW, image=self.result_photo)
+
+        self.result_update_zoom_display()
+
+    def on_result_mouse_wheel(self, event):
+        """Handle mouse wheel zoom on result canvas centered on cursor"""
+        if self.transformed_image is None:
+            return
+
+        if event.delta > 0:
+            self.result_zoom_in(event.x, event.y)
+        else:
+            self.result_zoom_out(event.x, event.y)
+
+    def on_result_canvas_click(self, event):
+        """Start panning on result canvas with left mouse button"""
+        if self.transformed_image is None:
+            return
+
+        self.result_panning = True
+        self.drag_start = (event.x, event.y)
+        self.result_canvas.config(cursor="fleur")
+
+    def on_result_canvas_drag(self, event):
+        """Pan the result image with left mouse button"""
+        if self.result_panning and self.drag_start and self.transformed_image is not None:
+            dx = event.x - self.drag_start[0]
+            dy = event.y - self.drag_start[1]
+            self.result_pan_offset[0] += dx
+            self.result_pan_offset[1] += dy
+            self.drag_start = (event.x, event.y)
+            self.display_result()
+
+    def on_result_canvas_release(self, event):
+        """End panning on result canvas"""
+        if self.result_panning:
+            self.result_panning = False
+            self.drag_start = None
+            self.result_canvas.config(cursor="arrow")
+
+    def on_result_canvas_right_click(self, event):
+        """Show context menu on right click in result canvas"""
+        if self.transformed_image is None:
+            return
+
+        # Show context menu at cursor position
+        try:
+            self.result_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.result_context_menu.grab_release()
 
     def save_image(self):
         if self.transformed_image is None:
