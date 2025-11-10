@@ -232,6 +232,11 @@ class DewarpGUI:
         self.dragging_point = None
         self.drag_start = None
 
+        # Layout mode tracking
+        self.layout_mode = "side-by-side"  # or "tabbed"
+        self.layout_threshold_width = 1200  # Switch to tabbed mode below this width
+        self.notebook = None  # Will hold the notebook widget when in tabbed mode
+
         # DPI for mm conversion (from command line or default 300 DPI)
         self.dpi = dpi
         self.dpi_var = tk.StringVar(value=str(dpi))
@@ -289,24 +294,27 @@ class DewarpGUI:
         self.root.bind('<Control-o>', lambda e: self.load_image())
         self.root.bind('<Control-s>', lambda e: self.save_image() if self.transformed_image else None)
 
-        # Canvas Frame
-        canvas_container = ttk.Frame(self.root)
-        canvas_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Canvas Frame - this will hold either side-by-side or tabbed layout
+        self.canvas_container = ttk.Frame(self.root)
+        self.canvas_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
-        # Main Canvas for original image
-        left_frame = ttk.Frame(canvas_container)
-        left_frame.grid(row=0, column=0, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Create SIDE-BY-SIDE container
+        self.sidebyside_container = ttk.Frame(self.canvas_container)
 
-        self.canvas = tk.Canvas(left_frame, bg='gray', cursor="cross",
+        # Main Canvas for original image (side-by-side)
+        self.left_frame = ttk.Frame(self.sidebyside_container)
+        self.left_frame.grid(row=0, column=0, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        self.canvas = tk.Canvas(self.left_frame, bg='gray', cursor="cross",
                                width=self.canvas_width, height=self.canvas_height,
                                highlightthickness=0)
-        self.canvas.pack(fill=tk.BOTH, expand=False)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
 
         # Initialize left ImageCanvas helper
         self.left_canvas = ImageCanvas(self.canvas, self.canvas_width, self.canvas_height)
 
         # Action buttons overlay (upper left corner of left canvas)
-        action_overlay = ttk.Frame(left_frame, relief=tk.RAISED, borderwidth=1)
+        action_overlay = ttk.Frame(self.left_frame, relief=tk.RAISED, borderwidth=1)
         action_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
 
         ttk.Button(action_overlay, text="Reset", command=self.reset_points, width=6).pack(side=tk.LEFT, padx=1)
@@ -314,7 +322,7 @@ class DewarpGUI:
         self.transform_btn.pack(side=tk.LEFT, padx=1)
 
         # Zoom controls overlay (upper right corner of left canvas)
-        zoom_overlay = ttk.Frame(left_frame, relief=tk.RAISED, borderwidth=1)
+        zoom_overlay = ttk.Frame(self.left_frame, relief=tk.RAISED, borderwidth=1)
         zoom_overlay.place(relx=1.0, rely=0.0, x=-5, y=5, anchor=tk.NE)
 
         ttk.Button(zoom_overlay, text="+", command=self.zoom_in, width=3).pack(side=tk.LEFT, padx=1)
@@ -332,14 +340,14 @@ class DewarpGUI:
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         self.canvas.bind("<Configure>", self.on_canvas_resize)
 
-        # Result Canvas
-        right_frame = ttk.Frame(canvas_container)
-        right_frame.grid(row=0, column=1, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Result Canvas (side-by-side)
+        self.right_frame = ttk.Frame(self.sidebyside_container)
+        self.right_frame.grid(row=0, column=1, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
 
-        self.result_canvas = tk.Canvas(right_frame, bg='gray',
+        self.result_canvas = tk.Canvas(self.right_frame, bg='gray',
                                        width=self.canvas_width, height=self.canvas_height,
                                        highlightthickness=0)
-        self.result_canvas.pack(fill=tk.BOTH, expand=False)
+        self.result_canvas.pack(fill=tk.BOTH, expand=True)
 
         # Initialize right ImageCanvas helper
         self.right_canvas = ImageCanvas(self.result_canvas, self.canvas_width, self.canvas_height)
@@ -352,11 +360,11 @@ class DewarpGUI:
         self.result_canvas.bind("<MouseWheel>", self.on_result_mouse_wheel)
 
         # Dimension controls overlay (upper left corner of right canvas)
-        dimensions_overlay = ttk.Frame(right_frame, relief=tk.RAISED, borderwidth=1, padding="5")
+        dimensions_overlay = ttk.Frame(self.right_frame, relief=tk.RAISED, borderwidth=1, padding="5")
         dimensions_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
 
         # Zoom controls overlay for result canvas (upper right corner)
-        result_zoom_overlay = ttk.Frame(right_frame, relief=tk.RAISED, borderwidth=1)
+        result_zoom_overlay = ttk.Frame(self.right_frame, relief=tk.RAISED, borderwidth=1)
         result_zoom_overlay.place(relx=1.0, rely=0.0, x=-5, y=5, anchor=tk.NE)
 
         ttk.Button(result_zoom_overlay, text="+", command=self.result_zoom_in, width=3).pack(side=tk.LEFT, padx=1)
@@ -390,12 +398,96 @@ class DewarpGUI:
         self.dpi_display_label = ttk.Label(status_frame, text="DPI: 300", anchor=tk.E)
         self.dpi_display_label.pack(side=tk.RIGHT, padx=10)
 
+        # Configure grid weights for side-by-side container
+        self.sidebyside_container.columnconfigure(0, weight=1)
+        self.sidebyside_container.columnconfigure(1, weight=1)
+        self.sidebyside_container.rowconfigure(0, weight=1)
+
+        # Create TABBED container
+        self.notebook = ttk.Notebook(self.canvas_container)
+
+        # Create tab frames with their own canvases
+        self.tab_left_frame = ttk.Frame(self.notebook)
+        self.tab_right_frame = ttk.Frame(self.notebook)
+
+        # Create canvases for tabs
+        self.tab_canvas = tk.Canvas(self.tab_left_frame, bg='gray', cursor="cross",
+                                   width=self.canvas_width, height=self.canvas_height,
+                                   highlightthickness=0)
+        self.tab_canvas.pack(fill=tk.BOTH, expand=True)
+
+        self.tab_result_canvas = tk.Canvas(self.tab_right_frame, bg='gray',
+                                          width=self.canvas_width, height=self.canvas_height,
+                                          highlightthickness=0)
+        self.tab_result_canvas.pack(fill=tk.BOTH, expand=True)
+
+        # Initialize ImageCanvas helpers for tab canvases
+        self.tab_left_canvas = ImageCanvas(self.tab_canvas, self.canvas_width, self.canvas_height)
+        self.tab_right_canvas = ImageCanvas(self.tab_result_canvas, self.canvas_width, self.canvas_height)
+
+        # Bind events for tab canvases (same as main canvases)
+        self.tab_canvas.bind("<Button-1>", self.on_canvas_click)
+        self.tab_canvas.bind("<B1-Motion>", self.on_canvas_drag)
+        self.tab_canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
+        self.tab_canvas.bind("<Button-3>", self.on_canvas_right_click)
+        self.tab_canvas.bind("<B3-Motion>", self.on_canvas_pan)
+        self.tab_canvas.bind("<MouseWheel>", self.on_mouse_wheel)
+        self.tab_canvas.bind("<Configure>", self.on_tab_canvas_resize)
+
+        self.tab_result_canvas.bind("<Configure>", self.on_tab_result_canvas_resize)
+        self.tab_result_canvas.bind("<Button-1>", self.on_result_canvas_click)
+        self.tab_result_canvas.bind("<B1-Motion>", self.on_result_canvas_drag)
+        self.tab_result_canvas.bind("<ButtonRelease-1>", self.on_result_canvas_release)
+        self.tab_result_canvas.bind("<Button-3>", self.on_result_canvas_right_click)
+        self.tab_result_canvas.bind("<MouseWheel>", self.on_result_mouse_wheel)
+
+        # Create overlay controls for tab canvases
+        tab_action_overlay = ttk.Frame(self.tab_left_frame, relief=tk.RAISED, borderwidth=1)
+        tab_action_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
+        ttk.Button(tab_action_overlay, text="Reset", command=self.reset_points, width=6).pack(side=tk.LEFT, padx=1)
+        self.tab_transform_btn = ttk.Button(tab_action_overlay, text="Apply", command=self.apply_transform, state=tk.DISABLED, width=6)
+        self.tab_transform_btn.pack(side=tk.LEFT, padx=1)
+
+        tab_zoom_overlay = ttk.Frame(self.tab_left_frame, relief=tk.RAISED, borderwidth=1)
+        tab_zoom_overlay.place(relx=1.0, rely=0.0, x=-5, y=5, anchor=tk.NE)
+        ttk.Button(tab_zoom_overlay, text="+", command=self.zoom_in, width=3).pack(side=tk.LEFT, padx=1)
+        ttk.Button(tab_zoom_overlay, text="-", command=self.zoom_out, width=3).pack(side=tk.LEFT, padx=1)
+        ttk.Button(tab_zoom_overlay, text="Fit", command=self.zoom_fit, width=4).pack(side=tk.LEFT, padx=1)
+        self.tab_zoom_label = ttk.Label(tab_zoom_overlay, text="100%", width=5)
+        self.tab_zoom_label.pack(side=tk.LEFT, padx=3)
+
+        tab_dimensions_overlay = ttk.Frame(self.tab_right_frame, relief=tk.RAISED, borderwidth=1, padding="5")
+        tab_dimensions_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
+
+        tab_result_zoom_overlay = ttk.Frame(self.tab_right_frame, relief=tk.RAISED, borderwidth=1)
+        tab_result_zoom_overlay.place(relx=1.0, rely=0.0, x=-5, y=5, anchor=tk.NE)
+        ttk.Button(tab_result_zoom_overlay, text="+", command=self.result_zoom_in, width=3).pack(side=tk.LEFT, padx=1)
+        ttk.Button(tab_result_zoom_overlay, text="-", command=self.result_zoom_out, width=3).pack(side=tk.LEFT, padx=1)
+        ttk.Button(tab_result_zoom_overlay, text="Fit", command=self.result_zoom_fit, width=4).pack(side=tk.LEFT, padx=1)
+        self.tab_result_zoom_label = ttk.Label(tab_result_zoom_overlay, text="100%", width=5)
+        self.tab_result_zoom_label.pack(side=tk.LEFT, padx=3)
+
+        # Share dimension controls between both layouts
+        ttk.Label(tab_dimensions_overlay, text="Width (mm):", font=('TkDefaultFont', 8)).grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
+        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=1, width=8).grid(row=0, column=1, padx=3)
+        ttk.Label(tab_dimensions_overlay, text="Height (mm):", font=('TkDefaultFont', 8)).grid(row=0, column=2, sticky=tk.E, padx=(5, 3))
+        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8).grid(row=0, column=3, padx=3)
+
+        # Add tabs to notebook
+        self.notebook.add(self.tab_left_frame, text="Original Image")
+        self.notebook.add(self.tab_right_frame, text="Result")
+
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        canvas_container.columnconfigure(0, weight=1)
-        canvas_container.columnconfigure(1, weight=1)
-        canvas_container.rowconfigure(0, weight=1)
+        self.canvas_container.columnconfigure(0, weight=1)
+        self.canvas_container.rowconfigure(0, weight=1)
+
+        # Start in side-by-side mode
+        self.sidebyside_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        # Bind window resize to check for layout mode change
+        self.root.bind("<Configure>", self.on_window_resize)
 
     def units_to_pixels(self, value):
         """Convert value in current units to pixels based on DPI"""
@@ -537,25 +629,43 @@ class DewarpGUI:
         """Zoom in by 20%, centered on given point (left canvas)"""
         if self.image is None:
             return
-        self.left_canvas.zoom_in(center_x, center_y)
-        self.update_zoom_display()
-        self.display_on_canvas()
+        if self.layout_mode == "side-by-side":
+            self.left_canvas.zoom_in(center_x, center_y)
+            self.update_zoom_display()
+            self.display_on_canvas()
+        else:
+            self.tab_left_canvas.zoom_in(center_x, center_y)
+            zoom_pct = self.tab_left_canvas.get_zoom_percentage()
+            self.tab_zoom_label.config(text=f"{zoom_pct}%")
+            self.display_on_tab_canvas()
 
     def zoom_out(self, center_x=None, center_y=None):
         """Zoom out by 20%, centered on given point (left canvas)"""
         if self.image is None:
             return
-        self.left_canvas.zoom_out(center_x, center_y)
-        self.update_zoom_display()
-        self.display_on_canvas()
+        if self.layout_mode == "side-by-side":
+            self.left_canvas.zoom_out(center_x, center_y)
+            self.update_zoom_display()
+            self.display_on_canvas()
+        else:
+            self.tab_left_canvas.zoom_out(center_x, center_y)
+            zoom_pct = self.tab_left_canvas.get_zoom_percentage()
+            self.tab_zoom_label.config(text=f"{zoom_pct}%")
+            self.display_on_tab_canvas()
 
     def zoom_fit(self):
         """Reset zoom to fit image in canvas (left canvas)"""
         if self.image is None:
             return
-        self.left_canvas.zoom_fit()
-        self.update_zoom_display()
-        self.display_on_canvas()
+        if self.layout_mode == "side-by-side":
+            self.left_canvas.zoom_fit()
+            self.update_zoom_display()
+            self.display_on_canvas()
+        else:
+            self.tab_left_canvas.zoom_fit()
+            zoom_pct = self.tab_left_canvas.get_zoom_percentage()
+            self.tab_zoom_label.config(text=f"{zoom_pct}%")
+            self.display_on_tab_canvas()
 
     def update_zoom_display(self):
         """Update zoom percentage label for left canvas"""
@@ -567,10 +677,105 @@ class DewarpGUI:
         if self.image is None:
             return
 
+        # zoom_in/zoom_out already handle layout_mode switching
         if event.delta > 0:
             self.zoom_in(event.x, event.y)
         else:
             self.zoom_out(event.x, event.y)
+
+    def on_window_resize(self, event):
+        """Handle window resize to switch between side-by-side and tabbed layouts"""
+        # Only handle window resize events (not widget resize events)
+        if event.widget != self.root:
+            return
+
+        window_width = event.width
+
+        # Determine desired layout mode based on window width
+        desired_mode = "tabbed" if window_width < self.layout_threshold_width else "side-by-side"
+
+        # Switch layout if needed
+        if desired_mode != self.layout_mode:
+            self.switch_layout_mode(desired_mode)
+
+    def switch_layout_mode(self, mode):
+        """Switch between side-by-side and tabbed layout modes"""
+        if mode == self.layout_mode:
+            return
+
+        self.layout_mode = mode
+
+        if mode == "tabbed":
+            # Switch to tabbed mode
+            self.setup_tabbed_layout()
+        else:
+            # Switch to side-by-side mode
+            self.setup_sidebyside_layout()
+
+        # Force UI update
+        self.root.update_idletasks()
+
+        # Refresh displays after layout change
+        if self.image is not None:
+            self.display_on_canvas()
+        if self.transformed_image is not None:
+            self.display_result()
+
+    def setup_tabbed_layout(self):
+        """Switch to tabbed layout"""
+        # Hide side-by-side container
+        self.sidebyside_container.grid_forget()
+
+        # Show notebook
+        self.notebook.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        # Force update and redraw
+        self.root.update_idletasks()
+
+        if self.image is not None:
+            self.display_on_tab_canvas()
+        if self.transformed_image is not None:
+            self.display_on_tab_result()
+
+    def setup_sidebyside_layout(self):
+        """Switch to side-by-side layout"""
+        # Hide notebook
+        self.notebook.grid_forget()
+
+        # Show side-by-side container
+        self.sidebyside_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        # Force update and redraw
+        self.root.update_idletasks()
+
+        if self.image is not None:
+            self.display_on_canvas()
+        if self.transformed_image is not None:
+            self.display_result()
+
+    def on_tab_canvas_resize(self, event):
+        """Handle tab canvas resize events"""
+        new_width = event.width
+        new_height = event.height
+
+        if new_width > 1 and new_height > 1:
+            if new_width != self.tab_left_canvas.canvas_width or new_height != self.tab_left_canvas.canvas_height:
+                self.tab_left_canvas.update_canvas_size(new_width, new_height)
+                if self.image is not None:
+                    self.tab_left_canvas.reset_view()
+                    self.display_on_tab_canvas()
+
+    def on_tab_result_canvas_resize(self, event):
+        """Handle tab result canvas resize events"""
+        new_width = event.width
+        new_height = event.height
+
+        if new_width > 1 and new_height > 1:
+            if new_width != self.tab_right_canvas.canvas_width or new_height != self.tab_right_canvas.canvas_height:
+                self.tab_right_canvas.update_canvas_size(new_width, new_height)
+                if self.transformed_image is not None:
+                    self.tab_right_canvas.reset_view()
+                    self.display_on_tab_result()
 
     def on_canvas_resize(self, event):
         """Handle canvas resize events"""
@@ -578,50 +783,78 @@ class DewarpGUI:
         new_width = event.width
         new_height = event.height
 
-        # Only update if dimensions actually changed
-        if new_width != self.canvas_width or new_height != self.canvas_height:
-            self.canvas_width = new_width
-            self.canvas_height = new_height
-            self.left_canvas.update_canvas_size(new_width, new_height)
+        # Only update if dimensions actually changed and are valid
+        if new_width > 1 and new_height > 1:
+            # In tabbed mode, update both canvas dimensions since they share the space
+            if self.layout_mode == "tabbed":
+                self.canvas_width = new_width
+                self.canvas_height = new_height
+                self.left_canvas.update_canvas_size(new_width, new_height)
+                self.right_canvas.update_canvas_size(new_width, new_height)
 
-            # Redisplay the image with new dimensions
-            if self.image is not None:
-                self.left_canvas.reset_view()
-                self.display_on_canvas()
+                # Redisplay both images if they exist
+                if self.image is not None:
+                    self.left_canvas.reset_view()
+                    self.display_on_canvas()
+                if self.transformed_image is not None:
+                    self.right_canvas.reset_view()
+                    self.display_result()
+            elif new_width != self.left_canvas.canvas_width or new_height != self.left_canvas.canvas_height:
+                # In side-by-side mode, only update left canvas
+                self.left_canvas.update_canvas_size(new_width, new_height)
+
+                # Redisplay the image with new dimensions
+                if self.image is not None:
+                    self.left_canvas.reset_view()
+                    self.display_on_canvas()
 
     def on_result_canvas_resize(self, event):
         """Handle result canvas resize events"""
         new_width = event.width
         new_height = event.height
 
-        if new_width > 1 and new_height > 1:
-            self.right_canvas.update_canvas_size(new_width, new_height)
+        # Only handle in side-by-side mode (tabbed mode is handled in on_canvas_resize)
+        if self.layout_mode == "side-by-side" and new_width > 1 and new_height > 1:
+            if new_width != self.right_canvas.canvas_width or new_height != self.right_canvas.canvas_height:
+                self.right_canvas.update_canvas_size(new_width, new_height)
 
-            # Redisplay the result image if it exists
-            if self.transformed_image is not None:
-                self.right_canvas.reset_view()
-                self.display_result()
+                # Redisplay the result image if it exists
+                if self.transformed_image is not None:
+                    self.right_canvas.reset_view()
+                    self.display_result()
 
     def result_zoom_in(self, center_x=None, center_y=None):
         """Zoom in on result canvas by 20%, centered on given point"""
         if self.transformed_image is None:
             return
-        self.right_canvas.zoom_in(center_x, center_y)
-        self.display_result()
+        if self.layout_mode == "side-by-side":
+            self.right_canvas.zoom_in(center_x, center_y)
+            self.display_result()
+        else:
+            self.tab_right_canvas.zoom_in(center_x, center_y)
+            self.display_on_tab_result()
 
     def result_zoom_out(self, center_x=None, center_y=None):
         """Zoom out on result canvas by 20%, centered on given point"""
         if self.transformed_image is None:
             return
-        self.right_canvas.zoom_out(center_x, center_y)
-        self.display_result()
+        if self.layout_mode == "side-by-side":
+            self.right_canvas.zoom_out(center_x, center_y)
+            self.display_result()
+        else:
+            self.tab_right_canvas.zoom_out(center_x, center_y)
+            self.display_on_tab_result()
 
     def result_zoom_fit(self):
         """Reset result canvas zoom to fit image"""
         if self.transformed_image is None:
             return
-        self.right_canvas.zoom_fit()
-        self.display_result()
+        if self.layout_mode == "side-by-side":
+            self.right_canvas.zoom_fit()
+            self.display_result()
+        else:
+            self.tab_right_canvas.zoom_fit()
+            self.display_on_tab_result()
 
     def result_update_zoom_display(self):
         """Update result zoom percentage label"""
@@ -631,12 +864,19 @@ class DewarpGUI:
     def on_canvas_right_click(self, event):
         """Start panning with right mouse button"""
         if self.image is not None:
-            self.left_canvas.start_pan(event.x, event.y)
+            canvas_helper = self.left_canvas if self.layout_mode == "side-by-side" else self.tab_left_canvas
+            canvas_helper.start_pan(event.x, event.y)
 
     def on_canvas_pan(self, event):
         """Pan the image with right mouse button"""
-        if self.image is not None and self.left_canvas.update_pan(event.x, event.y):
-            self.display_on_canvas()
+        if self.image is not None:
+            canvas_helper = self.left_canvas if self.layout_mode == "side-by-side" else self.tab_left_canvas
+            if canvas_helper.update_pan(event.x, event.y):
+                # Only update the active canvas for pan
+                if self.layout_mode == "side-by-side":
+                    self.display_on_canvas()
+                else:
+                    self.display_on_tab_canvas()
 
     def load_image(self):
         file_path = filedialog.askopenfilename(
@@ -687,8 +927,9 @@ class DewarpGUI:
         self._updating_dimensions = False
         self.dimensions_manually_set = False
 
-        # Display the image
+        # Display the image on both canvases
         self.display_on_canvas()
+        self.display_on_tab_canvas()
         self.status_label.config(text=f"Image loaded (Input DPI: {self.input_dpi}). Click 4 corners (drag to adjust). Drag to pan, scroll to zoom.")
 
     def display_on_canvas(self):
@@ -730,10 +971,61 @@ class DewarpGUI:
         self.left_canvas.display_image(self.image, overlay_callback=draw_points_overlay)
         self.update_zoom_display()
 
+    def display_on_tab_canvas(self):
+        """Display image on tab canvas (same as display_on_canvas but for tab)"""
+        if self.image is None:
+            return
+
+        # Define overlay callback to draw points and lines
+        def draw_points_overlay(canvas_image, effective_scale, pan_offset):
+            # Draw lines connecting points
+            for i in range(len(self.points)):
+                if i < len(self.points) - 1 or len(self.points) == 4:
+                    next_i = (i + 1) % len(self.points)
+                    pt1_x, pt1_y = self.tab_left_canvas.image_to_canvas_coords(
+                        self.points[i][0], self.points[i][1])
+                    pt2_x, pt2_y = self.tab_left_canvas.image_to_canvas_coords(
+                        self.points[next_i][0], self.points[next_i][1])
+
+                    # Draw line
+                    cv3.line(canvas_image, int(pt1_x), int(pt1_y),
+                            int(pt2_x), int(pt2_y), color=(0, 255, 0), t=2)
+
+            # Draw points on top
+            for i, pt in enumerate(self.points):
+                pt_x, pt_y = self.tab_left_canvas.image_to_canvas_coords(pt[0], pt[1])
+                pt_x, pt_y = int(pt_x), int(pt_y)
+
+                # Only draw if within canvas bounds
+                if -20 <= pt_x < self.tab_left_canvas.canvas_width + 20 and \
+                   -20 <= pt_y < self.tab_left_canvas.canvas_height + 20:
+                    cv3.circle(canvas_image, pt_x, pt_y, 10, color=(0, 0, 255), t=2)
+                    cv3.circle(canvas_image, pt_x, pt_y, 6, color=(255, 0, 0), fill=True)
+                    cv2.putText(canvas_image, str(i+1), (pt_x+12, pt_y-12),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+
+        # Display image with overlay
+        self.tab_left_canvas.display_image(self.image, overlay_callback=draw_points_overlay)
+        # Update zoom label
+        zoom_pct = self.tab_left_canvas.get_zoom_percentage()
+        self.tab_zoom_label.config(text=f"{zoom_pct}%")
+
+    def display_on_tab_result(self):
+        """Display result image on tab result canvas"""
+        if self.transformed_image is None:
+            return
+
+        self.tab_right_canvas.display_image(self.transformed_image)
+        zoom_pct = self.tab_right_canvas.get_zoom_percentage()
+        self.tab_result_zoom_label.config(text=f"{zoom_pct}%")
+
     def get_point_at_position(self, x, y, threshold=15):
         """Find if there's a point near the given position"""
+        # Use appropriate canvas based on layout mode
+        canvas_helper = self.left_canvas if self.layout_mode == "side-by-side" else self.tab_left_canvas
+
         for i, pt in enumerate(self.points):
-            scaled_x, scaled_y = self.left_canvas.image_to_canvas_coords(pt[0], pt[1])
+            scaled_x, scaled_y = canvas_helper.image_to_canvas_coords(pt[0], pt[1])
 
             distance = np.sqrt((x - scaled_x)**2 + (y - scaled_y)**2)
             if distance < threshold:
@@ -744,6 +1036,10 @@ class DewarpGUI:
         if self.image is None:
             return
 
+        # Use appropriate canvas based on layout mode
+        canvas_helper = self.left_canvas if self.layout_mode == "side-by-side" else self.tab_left_canvas
+        canvas_widget = self.canvas if self.layout_mode == "side-by-side" else self.tab_canvas
+
         # Check if clicking on existing point
         point_idx = self.get_point_at_position(event.x, event.y)
 
@@ -751,53 +1047,71 @@ class DewarpGUI:
             # Start dragging this point
             self.dragging_point = point_idx
             self.drag_start = (event.x, event.y)
-            self.canvas.config(cursor="hand2")
+            canvas_widget.config(cursor="hand2")
         elif len(self.points) < 4:
             # Add new point - convert canvas coordinates to image coordinates
-            x, y = self.left_canvas.canvas_to_image_coords(event.x, event.y)
+            x, y = canvas_helper.canvas_to_image_coords(event.x, event.y)
 
             # Allow points beyond image boundaries (no clamping)
             self.points.append((x, y))
+
+            # Display on both canvases to keep them in sync
             self.display_on_canvas()
+            self.display_on_tab_canvas()
 
             if len(self.points) == 4:
                 self.calculate_output_dimensions()
                 self.status_label.config(text="All 4 points selected. Dimensions calculated. Adjust by dragging or click 'Apply Transform'.")
                 self.transform_btn.config(state=tk.NORMAL)
+                if self.layout_mode == "tabbed":
+                    self.tab_transform_btn.config(state=tk.NORMAL)
             else:
                 labels = ["top-left", "top-right", "bottom-right", "bottom-left"]
                 self.status_label.config(text=f"Point {len(self.points)}/4 added. Suggest: {labels[len(self.points)]}")
         else:
             # All 4 points already placed, start panning
-            self.left_canvas.start_pan(event.x, event.y)
-            self.canvas.config(cursor="fleur")
+            canvas_helper.start_pan(event.x, event.y)
+            canvas_widget.config(cursor="fleur")
 
     def on_canvas_drag(self, event):
         if self.image is None:
             return
 
+        # Use appropriate canvas based on layout mode
+        canvas_helper = self.left_canvas if self.layout_mode == "side-by-side" else self.tab_left_canvas
+
         if self.dragging_point is not None:
             # Update point position - convert canvas coordinates to image coordinates
-            x, y = self.left_canvas.canvas_to_image_coords(event.x, event.y)
+            x, y = canvas_helper.canvas_to_image_coords(event.x, event.y)
 
             # Allow points beyond image boundaries (no clamping)
             self.points[self.dragging_point] = (x, y)
+
+            # Display on both canvases to keep them in sync
             self.display_on_canvas()
-        elif self.left_canvas.update_pan(event.x, event.y):
-            # Pan the image
-            self.display_on_canvas()
+            self.display_on_tab_canvas()
+        elif canvas_helper.update_pan(event.x, event.y):
+            # Pan the image on the active canvas only
+            if self.layout_mode == "side-by-side":
+                self.display_on_canvas()
+            else:
+                self.display_on_tab_canvas()
 
     def on_canvas_release(self, event):
+        # Use appropriate canvas based on layout mode
+        canvas_helper = self.left_canvas if self.layout_mode == "side-by-side" else self.tab_left_canvas
+        canvas_widget = self.canvas if self.layout_mode == "side-by-side" else self.tab_canvas
+
         if self.dragging_point is not None:
             self.dragging_point = None
             self.drag_start = None
-            self.canvas.config(cursor="cross")
+            canvas_widget.config(cursor="cross")
             # Recalculate dimensions after dragging a point
             if len(self.points) == 4:
                 self.calculate_output_dimensions()
-        elif self.left_canvas.panning:
-            self.left_canvas.end_pan()
-            self.canvas.config(cursor="cross")
+        elif canvas_helper.panning:
+            canvas_helper.end_pan()
+            canvas_widget.config(cursor="cross")
 
     def reset_points(self):
         self.points = []
@@ -1000,11 +1314,13 @@ class DewarpGUI:
             units_abbr = "px" if self.units.get() == "pixels" else ("in" if self.units.get() == "inches" else "mm")
             status_msg = f"Transform applied! Output: {width_value:.1f}x{height_value:.1f}{units_abbr} @ {dpi}DPI ({output_width}x{output_height}px)"
 
-        # Reset zoom and pan for new result
+        # Reset zoom and pan for new result (both canvases)
         self.right_canvas.reset_view()
+        self.tab_right_canvas.reset_view()
 
-        # Display result
+        # Display result on both canvases
         self.display_result()
+        self.display_on_tab_result()
         self.status_label.config(text=status_msg)
         self.file_menu.entryconfig("Save Result...", state=tk.NORMAL)
 
