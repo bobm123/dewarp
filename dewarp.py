@@ -234,7 +234,8 @@ class DewarpGUI:
 
         # Layout mode tracking
         self.layout_mode = "side-by-side"  # or "tabbed"
-        self.layout_threshold_width = 1200  # Switch to tabbed mode below this width
+        self.layout_threshold_width = 800  # Switch to tabbed mode below this width
+        self.layout_hysteresis = 50  # Hysteresis range to prevent rapid switching
         self.notebook = None  # Will hold the notebook widget when in tabbed mode
 
         # DPI for mm conversion (from command line or default 300 DPI)
@@ -474,7 +475,7 @@ class DewarpGUI:
         ttk.Spinbox(tab_dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8).grid(row=0, column=3, padx=3)
 
         # Add tabs to notebook
-        self.notebook.add(self.tab_left_frame, text="Original Image")
+        self.notebook.add(self.tab_left_frame, text="Original")
         self.notebook.add(self.tab_right_frame, text="Result")
 
         # Configure grid weights
@@ -691,12 +692,18 @@ class DewarpGUI:
 
         window_width = event.width
 
-        # Determine desired layout mode based on window width
-        desired_mode = "tabbed" if window_width < self.layout_threshold_width else "side-by-side"
+        # Implement hysteresis to prevent rapid switching
+        # When in side-by-side mode, need to go below (threshold - hysteresis) to switch to tabbed
+        # When in tabbed mode, need to go above (threshold + hysteresis) to switch to side-by-side
 
-        # Switch layout if needed
-        if desired_mode != self.layout_mode:
-            self.switch_layout_mode(desired_mode)
+        if self.layout_mode == "side-by-side":
+            # Currently in side-by-side, switch to tabbed if width drops below lower threshold
+            if window_width < (self.layout_threshold_width - self.layout_hysteresis):
+                self.switch_layout_mode("tabbed")
+        else:
+            # Currently in tabbed, switch to side-by-side if width rises above upper threshold
+            if window_width >= (self.layout_threshold_width + self.layout_hysteresis):
+                self.switch_layout_mode("side-by-side")
 
     def switch_layout_mode(self, mode):
         """Switch between side-by-side and tabbed layout modes"""
