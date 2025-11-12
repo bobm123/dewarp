@@ -260,9 +260,22 @@ class DewarpGUI:
         # Setup UI
         self.setup_ui()
 
-        # Create context menu for result canvas
+        # Create context menus
         self.result_context_menu = tk.Menu(self.root, tearoff=0)
         self.result_context_menu.add_command(label="Save Result...", command=self.save_image)
+        self.result_context_menu.add_separator()
+        self.result_context_menu.add_command(label="Use as Original", command=self.use_result_as_original)
+        self.result_context_menu.add_separator()
+        self.result_context_menu.add_command(label="Rotate 90 deg CW", command=lambda: self.rotate_result(clockwise=True))
+        self.result_context_menu.add_command(label="Rotate 90 deg CCW", command=lambda: self.rotate_result(clockwise=False))
+        self.result_context_menu.add_separator()
+        self.result_context_menu.add_checkbutton(label="Crop Mode", variable=self.crop_image, command=self.on_crop_mode_changed)
+
+        self.canvas_context_menu = tk.Menu(self.root, tearoff=0)
+        self.canvas_context_menu.add_command(label="Rotate 90 deg CW", command=lambda: self.rotate_original(clockwise=True))
+        self.canvas_context_menu.add_command(label="Rotate 90 deg CCW", command=lambda: self.rotate_original(clockwise=False))
+        self.canvas_context_menu.add_separator()
+        self.canvas_context_menu.add_checkbutton(label="Crop Mode", variable=self.crop_image, command=self.on_crop_mode_changed)
 
     def setup_ui(self):
         # Calculate canvas dimensions based on screen size
@@ -340,6 +353,9 @@ class DewarpGUI:
         self.canvas.bind("<B3-Motion>", self.on_canvas_pan)
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         self.canvas.bind("<Configure>", self.on_canvas_resize)
+        # Context menu (platform-specific: App key on Windows, Ctrl+Click on Mac, Shift+F10)
+        self.canvas.bind("<App>", self.on_canvas_context_menu)  # Windows context menu key
+        self.canvas.bind("<Shift-Button-3>", self.on_canvas_context_menu)  # Shift+Right-click
 
         # Result Canvas (side-by-side)
         self.right_frame = ttk.Frame(self.sidebyside_container)
@@ -434,6 +450,8 @@ class DewarpGUI:
         self.tab_canvas.bind("<B3-Motion>", self.on_canvas_pan)
         self.tab_canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         self.tab_canvas.bind("<Configure>", self.on_tab_canvas_resize)
+        self.tab_canvas.bind("<App>", self.on_canvas_context_menu)
+        self.tab_canvas.bind("<Shift-Button-3>", self.on_canvas_context_menu)
 
         self.tab_result_canvas.bind("<Configure>", self.on_tab_result_canvas_resize)
         self.tab_result_canvas.bind("<Button-1>", self.on_result_canvas_click)
@@ -560,6 +578,102 @@ class DewarpGUI:
         except (tk.TclError, AttributeError):
             # Ignore errors during initialization
             pass
+
+    def on_crop_mode_changed(self):
+        """Called when crop mode checkbox is toggled"""
+        # If we have a transformed image, re-apply the transform with new crop setting
+        if len(self.points) == 4 and self.image is not None:
+            self.apply_transform()
+
+    def use_result_as_original(self):
+        """Move the result image to the original pane for further editing"""
+        if self.transformed_image is None:
+            return
+
+        # Save the result as the new original
+        self.original_image = self.transformed_image.copy()
+        self.image = self.transformed_image.copy()
+
+        # Reset points and result
+        self.points = []
+        self.transformed_image = None
+        self.transform_btn.config(state=tk.DISABLED)
+        self.tab_transform_btn.config(state=tk.DISABLED)
+        self.file_menu.entryconfig("Save Result...", state=tk.DISABLED)
+
+        # Clear dimension fields
+        self._updating_dimensions = True
+        self.width_var.set("")
+        self.height_var.set("")
+        self._updating_dimensions = False
+        self.dimensions_manually_set = False
+
+        # Reset view and display
+        self.left_canvas.reset_view()
+        self.tab_left_canvas.reset_view()
+        self.display_on_canvas()
+        self.display_on_tab_canvas()
+
+        # Clear result canvases
+        self.result_canvas.delete("all")
+        self.tab_result_canvas.delete("all")
+
+        self.status_label.config(text="Result moved to original. Click 4 corners to continue editing.")
+
+    def rotate_original(self, clockwise=True):
+        """Rotate the original image 90 degrees"""
+        if self.image is None:
+            return
+
+        # Rotate the image (clockwise = -90, counter-clockwise = 90)
+        rotation_code = cv2.ROTATE_90_CLOCKWISE if clockwise else cv2.ROTATE_90_COUNTERCLOCKWISE
+        self.original_image = cv2.rotate(self.original_image, rotation_code)
+        self.image = self.original_image.copy()
+
+        # Clear points and result since rotation invalidates them
+        self.points = []
+        self.transformed_image = None
+        self.transform_btn.config(state=tk.DISABLED)
+        self.tab_transform_btn.config(state=tk.DISABLED)
+        self.file_menu.entryconfig("Save Result...", state=tk.DISABLED)
+
+        # Clear dimension fields
+        self._updating_dimensions = True
+        self.width_var.set("")
+        self.height_var.set("")
+        self._updating_dimensions = False
+        self.dimensions_manually_set = False
+
+        # Reset view and display
+        self.left_canvas.reset_view()
+        self.tab_left_canvas.reset_view()
+        self.display_on_canvas()
+        self.display_on_tab_canvas()
+
+        # Clear result canvases
+        self.result_canvas.delete("all")
+        self.tab_result_canvas.delete("all")
+
+        direction = "clockwise" if clockwise else "counter-clockwise"
+        self.status_label.config(text=f"Image rotated 90 deg {direction}. Click 4 corners to transform.")
+
+    def rotate_result(self, clockwise=True):
+        """Rotate the result image 90 degrees"""
+        if self.transformed_image is None:
+            return
+
+        # Rotate the result image
+        rotation_code = cv2.ROTATE_90_CLOCKWISE if clockwise else cv2.ROTATE_90_COUNTERCLOCKWISE
+        self.transformed_image = cv2.rotate(self.transformed_image, rotation_code)
+
+        # Reset view and display result
+        self.right_canvas.reset_view()
+        self.tab_right_canvas.reset_view()
+        self.display_result()
+        self.display_on_tab_result()
+
+        direction = "clockwise" if clockwise else "counter-clockwise"
+        self.status_label.config(text=f"Result rotated 90 deg {direction}.")
 
     def show_preferences(self):
         """Show the preferences dialog"""
@@ -873,6 +987,16 @@ class DewarpGUI:
         if self.image is not None:
             canvas_helper = self.left_canvas if self.layout_mode == "side-by-side" else self.tab_left_canvas
             canvas_helper.start_pan(event.x, event.y)
+
+    def on_canvas_context_menu(self, event):
+        """Show context menu on canvas (Shift+Right-Click or platform context menu key)"""
+        if self.image is None:
+            return
+
+        try:
+            self.canvas_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.canvas_context_menu.grab_release()
 
     def on_canvas_pan(self, event):
         """Pan the image with right mouse button"""
