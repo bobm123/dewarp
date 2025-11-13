@@ -232,6 +232,13 @@ class DewarpGUI:
         self.dragging_point = None
         self.drag_start = None
 
+        # Scale calibration state
+        self.scale_mode = None  # None, "original", or "result"
+        self.scale_points = []  # Two points defining the scale line
+        self.scale_length = None  # Real-world length in current units
+        self.scale_factor = 1.0  # Pixels per unit
+        self.dragging_scale_point = None  # Index of scale point being dragged
+
         # Layout mode tracking
         self.layout_mode = "side-by-side"  # or "tabbed"
         self.layout_threshold_width = 800  # Switch to tabbed mode below this width
@@ -266,12 +273,16 @@ class DewarpGUI:
         self.result_context_menu.add_separator()
         self.result_context_menu.add_command(label="Use as Original", command=self.use_result_as_original)
         self.result_context_menu.add_separator()
+        self.result_context_menu.add_command(label="Set Scale...", command=self.start_scale_calibration_result)
+        self.result_context_menu.add_separator()
         self.result_context_menu.add_command(label="Rotate 90 deg CW", command=lambda: self.rotate_result(clockwise=True))
         self.result_context_menu.add_command(label="Rotate 90 deg CCW", command=lambda: self.rotate_result(clockwise=False))
         self.result_context_menu.add_separator()
         self.result_context_menu.add_checkbutton(label="Crop Mode", variable=self.crop_image, command=self.on_crop_mode_changed)
 
         self.canvas_context_menu = tk.Menu(self.root, tearoff=0)
+        self.canvas_context_menu.add_command(label="Set Scale...", command=self.start_scale_calibration_original)
+        self.canvas_context_menu.add_separator()
         self.canvas_context_menu.add_command(label="Rotate 90 deg CW", command=lambda: self.rotate_original(clockwise=True))
         self.canvas_context_menu.add_command(label="Rotate 90 deg CCW", command=lambda: self.rotate_original(clockwise=False))
         self.canvas_context_menu.add_separator()
@@ -675,6 +686,138 @@ class DewarpGUI:
         direction = "clockwise" if clockwise else "counter-clockwise"
         self.status_label.config(text=f"Result rotated 90 deg {direction}.")
 
+    def start_scale_calibration_original(self):
+        """Start scale calibration mode on original image"""
+        if self.image is None:
+            return
+
+        self.scale_mode = "original"
+        self.scale_points = []
+        self.status_label.config(text="Scale calibration: Click two points on a known distance")
+
+        # Change cursor
+        if self.layout_mode == "side-by-side":
+            self.canvas.config(cursor="crosshair")
+        else:
+            self.tab_canvas.config(cursor="crosshair")
+
+    def start_scale_calibration_result(self):
+        """Start scale calibration mode on result image"""
+        if self.transformed_image is None:
+            return
+
+        self.scale_mode = "result"
+        self.scale_points = []
+        self.status_label.config(text="Scale calibration: Click two points on a known distance")
+
+        # Change cursor
+        if self.layout_mode == "side-by-side":
+            self.result_canvas.config(cursor="crosshair")
+        else:
+            self.tab_result_canvas.config(cursor="crosshair")
+
+    def cancel_scale_calibration(self):
+        """Cancel scale calibration mode"""
+        self.scale_mode = None
+        self.scale_points = []
+
+        # Reset cursors
+        if self.layout_mode == "side-by-side":
+            self.canvas.config(cursor="cross")
+            self.result_canvas.config(cursor="arrow")
+        else:
+            self.tab_canvas.config(cursor="cross")
+            self.tab_result_canvas.config(cursor="arrow")
+
+        self.display_on_canvas()
+        self.display_on_tab_canvas()
+        if self.transformed_image is not None:
+            self.display_result()
+            self.display_on_tab_result()
+
+    def finish_scale_calibration(self):
+        """Show dialog to enter the real-world length"""
+        if len(self.scale_points) != 2:
+            return
+
+        # Calculate pixel distance
+        pt1, pt2 = self.scale_points
+        pixel_distance = np.sqrt((pt2[0] - pt1[0])**2 + (pt2[1] - pt1[1])**2)
+
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Set Scale")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center dialog
+        dialog_width = 300
+        dialog_height = 150
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog_width // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog_height // 2)
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        dialog.resizable(False, False)
+
+        # Content
+        content = ttk.Frame(dialog, padding="20")
+        content.pack(fill=tk.BOTH, expand=True)
+
+        units_text = self.units.get()
+        if units_text == "pixels":
+            units_text = "px"
+        elif units_text == "inches":
+            units_text = "in"
+
+        ttk.Label(content, text=f"Enter the real-world length of the line:").pack(pady=(0, 10))
+
+        length_frame = ttk.Frame(content)
+        length_frame.pack(pady=10)
+
+        length_var = tk.StringVar()
+        length_entry = ttk.Entry(length_frame, textvariable=length_var, width=15)
+        length_entry.pack(side=tk.LEFT, padx=(0, 5))
+        length_entry.focus()
+
+        ttk.Label(length_frame, text=units_text).pack(side=tk.LEFT)
+
+        button_frame = ttk.Frame(content)
+        button_frame.pack(pady=(10, 0))
+
+        def on_ok():
+            try:
+                real_length = float(length_var.get())
+                if real_length <= 0:
+                    raise ValueError("Length must be positive")
+
+                # Calculate scale factor (pixels per unit)
+                self.scale_factor = pixel_distance / real_length
+                self.scale_length = real_length
+
+                # If we have 4 points already, recalculate dimensions
+                if len(self.points) == 4:
+                    self.calculate_output_dimensions()
+
+                dialog.destroy()
+                self.cancel_scale_calibration()
+
+                self.status_label.config(text=f"Scale set: {pixel_distance:.1f} pixels = {real_length:.1f} {units_text}")
+
+            except ValueError:
+                self.status_label.config(text="Error: Invalid length entered")
+                dialog.destroy()
+                self.cancel_scale_calibration()
+
+        def on_cancel():
+            dialog.destroy()
+            self.cancel_scale_calibration()
+
+        ttk.Button(button_frame, text="OK", command=on_ok, width=10).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=on_cancel, width=10).pack(side=tk.LEFT, padx=5)
+
+        # Bind Enter key
+        dialog.bind('<Return>', lambda e: on_ok())
+        dialog.bind('<Escape>', lambda e: on_cancel())
+
     def show_preferences(self):
         """Show the preferences dialog"""
         # Create modal dialog
@@ -1069,14 +1212,42 @@ class DewarpGUI:
 
         # Define overlay callback to draw points and lines
         def draw_points_overlay(canvas_image, effective_scale, pan_offset):
-            # Draw lines connecting points
-            for i in range(len(self.points)):
-                if i < len(self.points) - 1 or len(self.points) == 4:
-                    next_i = (i + 1) % len(self.points)
+            # Draw scale calibration line if in scale mode for original
+            if self.scale_mode == "original" and len(self.scale_points) > 0:
+                # Draw line first if we have 2 points
+                if len(self.scale_points) == 2:
                     pt1_x, pt1_y = self.left_canvas.image_to_canvas_coords(
-                        self.points[i][0], self.points[i][1])
+                        self.scale_points[0][0], self.scale_points[0][1])
                     pt2_x, pt2_y = self.left_canvas.image_to_canvas_coords(
-                        self.points[next_i][0], self.points[next_i][1])
+                        self.scale_points[1][0], self.scale_points[1][1])
+                    # Draw thin cyan line
+                    cv3.line(canvas_image, int(pt1_x), int(pt1_y),
+                            int(pt2_x), int(pt2_y), color=(0, 255, 255), t=1)
+
+                # Draw endpoints on top with smaller circles
+                for i, pt in enumerate(self.scale_points):
+                    pt_x, pt_y = self.left_canvas.image_to_canvas_coords(pt[0], pt[1])
+                    pt_x, pt_y = int(pt_x), int(pt_y)
+                    # Outer circle (cyan)
+                    cv3.circle(canvas_image, pt_x, pt_y, 5, color=(0, 255, 255), t=1)
+                    # Inner filled circle (cyan)
+                    cv3.circle(canvas_image, pt_x, pt_y, 3, color=(0, 255, 255), fill=True)
+
+            # Draw lines connecting points
+            # If we have 4 points, reorder them to form a proper quadrilateral
+            if len(self.points) == 4:
+                ordered_rect = self.order_points(self.points)
+                points_to_draw = ordered_rect
+            else:
+                points_to_draw = self.points
+
+            for i in range(len(points_to_draw)):
+                if i < len(points_to_draw) - 1 or len(points_to_draw) == 4:
+                    next_i = (i + 1) % len(points_to_draw)
+                    pt1_x, pt1_y = self.left_canvas.image_to_canvas_coords(
+                        points_to_draw[i][0], points_to_draw[i][1])
+                    pt2_x, pt2_y = self.left_canvas.image_to_canvas_coords(
+                        points_to_draw[next_i][0], points_to_draw[next_i][1])
 
                     # Draw line (OpenCV automatically clips to image bounds)
                     cv3.line(canvas_image, int(pt1_x), int(pt1_y),
@@ -1090,13 +1261,10 @@ class DewarpGUI:
                 # Only draw if within canvas bounds (with some margin for visibility)
                 if -20 <= pt_x < self.left_canvas.canvas_width + 20 and \
                    -20 <= pt_y < self.left_canvas.canvas_height + 20:
-                    # Outer circle
-                    cv3.circle(canvas_image, pt_x, pt_y, 10, color=(0, 0, 255), t=2)
-                    # Inner filled circle
-                    cv3.circle(canvas_image, pt_x, pt_y, 6, color=(255, 0, 0), fill=True)
-                    # Label - use cv2 for text as it's simpler
-                    cv2.putText(canvas_image, str(i+1), (pt_x+12, pt_y-12),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                    # Outer circle (same size as scale points)
+                    cv3.circle(canvas_image, pt_x, pt_y, 5, color=(0, 0, 255), t=1)
+                    # Inner filled circle (same size as scale points)
+                    cv3.circle(canvas_image, pt_x, pt_y, 3, color=(255, 0, 0), fill=True)
 
         # Display image with overlay
         self.left_canvas.display_image(self.image, overlay_callback=draw_points_overlay)
@@ -1109,14 +1277,42 @@ class DewarpGUI:
 
         # Define overlay callback to draw points and lines
         def draw_points_overlay(canvas_image, effective_scale, pan_offset):
-            # Draw lines connecting points
-            for i in range(len(self.points)):
-                if i < len(self.points) - 1 or len(self.points) == 4:
-                    next_i = (i + 1) % len(self.points)
+            # Draw scale calibration line if in scale mode for original
+            if self.scale_mode == "original" and len(self.scale_points) > 0:
+                # Draw line first if we have 2 points
+                if len(self.scale_points) == 2:
                     pt1_x, pt1_y = self.tab_left_canvas.image_to_canvas_coords(
-                        self.points[i][0], self.points[i][1])
+                        self.scale_points[0][0], self.scale_points[0][1])
                     pt2_x, pt2_y = self.tab_left_canvas.image_to_canvas_coords(
-                        self.points[next_i][0], self.points[next_i][1])
+                        self.scale_points[1][0], self.scale_points[1][1])
+                    # Draw thin cyan line
+                    cv3.line(canvas_image, int(pt1_x), int(pt1_y),
+                            int(pt2_x), int(pt2_y), color=(0, 255, 255), t=1)
+
+                # Draw endpoints on top with smaller circles
+                for i, pt in enumerate(self.scale_points):
+                    pt_x, pt_y = self.tab_left_canvas.image_to_canvas_coords(pt[0], pt[1])
+                    pt_x, pt_y = int(pt_x), int(pt_y)
+                    # Outer circle (cyan)
+                    cv3.circle(canvas_image, pt_x, pt_y, 5, color=(0, 255, 255), t=1)
+                    # Inner filled circle (cyan)
+                    cv3.circle(canvas_image, pt_x, pt_y, 3, color=(0, 255, 255), fill=True)
+
+            # Draw lines connecting points
+            # If we have 4 points, reorder them to form a proper quadrilateral
+            if len(self.points) == 4:
+                ordered_rect = self.order_points(self.points)
+                points_to_draw = ordered_rect
+            else:
+                points_to_draw = self.points
+
+            for i in range(len(points_to_draw)):
+                if i < len(points_to_draw) - 1 or len(points_to_draw) == 4:
+                    next_i = (i + 1) % len(points_to_draw)
+                    pt1_x, pt1_y = self.tab_left_canvas.image_to_canvas_coords(
+                        points_to_draw[i][0], points_to_draw[i][1])
+                    pt2_x, pt2_y = self.tab_left_canvas.image_to_canvas_coords(
+                        points_to_draw[next_i][0], points_to_draw[next_i][1])
 
                     # Draw line
                     cv3.line(canvas_image, int(pt1_x), int(pt1_y),
@@ -1130,10 +1326,10 @@ class DewarpGUI:
                 # Only draw if within canvas bounds
                 if -20 <= pt_x < self.tab_left_canvas.canvas_width + 20 and \
                    -20 <= pt_y < self.tab_left_canvas.canvas_height + 20:
-                    cv3.circle(canvas_image, pt_x, pt_y, 10, color=(0, 0, 255), t=2)
-                    cv3.circle(canvas_image, pt_x, pt_y, 6, color=(255, 0, 0), fill=True)
-                    cv2.putText(canvas_image, str(i+1), (pt_x+12, pt_y-12),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                    # Outer circle (same size as scale points)
+                    cv3.circle(canvas_image, pt_x, pt_y, 5, color=(0, 0, 255), t=1)
+                    # Inner filled circle (same size as scale points)
+                    cv3.circle(canvas_image, pt_x, pt_y, 3, color=(255, 0, 0), fill=True)
 
         # Display image with overlay
         self.tab_left_canvas.display_image(self.image, overlay_callback=draw_points_overlay)
@@ -1146,7 +1342,30 @@ class DewarpGUI:
         if self.transformed_image is None:
             return
 
-        self.tab_right_canvas.display_image(self.transformed_image)
+        # Define overlay callback to draw scale line if in result scale mode
+        def draw_scale_overlay(canvas_image, effective_scale, pan_offset):
+            if self.scale_mode == "result" and len(self.scale_points) > 0:
+                # Draw line first if we have 2 points
+                if len(self.scale_points) == 2:
+                    pt1_x, pt1_y = self.tab_right_canvas.image_to_canvas_coords(
+                        self.scale_points[0][0], self.scale_points[0][1])
+                    pt2_x, pt2_y = self.tab_right_canvas.image_to_canvas_coords(
+                        self.scale_points[1][0], self.scale_points[1][1])
+                    # Draw thin cyan line
+                    cv3.line(canvas_image, int(pt1_x), int(pt1_y),
+                            int(pt2_x), int(pt2_y), color=(0, 255, 255), t=1)
+
+                # Draw endpoints on top with smaller circles
+                for i, pt in enumerate(self.scale_points):
+                    pt_x, pt_y = self.tab_right_canvas.image_to_canvas_coords(pt[0], pt[1])
+                    pt_x, pt_y = int(pt_x), int(pt_y)
+                    # Outer circle (cyan)
+                    cv3.circle(canvas_image, pt_x, pt_y, 5, color=(0, 255, 255), t=1)
+                    # Inner filled circle (cyan)
+                    cv3.circle(canvas_image, pt_x, pt_y, 3, color=(0, 255, 255), fill=True)
+
+        overlay_callback = draw_scale_overlay if self.scale_mode == "result" else None
+        self.tab_right_canvas.display_image(self.transformed_image, overlay_callback=overlay_callback)
         zoom_pct = self.tab_right_canvas.get_zoom_percentage()
         self.tab_result_zoom_label.config(text=f"{zoom_pct}%")
 
@@ -1163,6 +1382,27 @@ class DewarpGUI:
                 return i
         return None
 
+    def get_scale_point_at_position(self, x, y, threshold=10):
+        """Find if there's a scale point near the given position"""
+        if len(self.scale_points) == 0:
+            return None
+
+        # Use appropriate canvas based on layout mode and scale mode
+        if self.scale_mode == "original":
+            canvas_helper = self.left_canvas if self.layout_mode == "side-by-side" else self.tab_left_canvas
+        elif self.scale_mode == "result":
+            canvas_helper = self.right_canvas if self.layout_mode == "side-by-side" else self.tab_right_canvas
+        else:
+            return None
+
+        for i, pt in enumerate(self.scale_points):
+            scaled_x, scaled_y = canvas_helper.image_to_canvas_coords(pt[0], pt[1])
+
+            distance = np.sqrt((x - scaled_x)**2 + (y - scaled_y)**2)
+            if distance < threshold:
+                return i
+        return None
+
     def on_canvas_click(self, event):
         if self.image is None:
             return
@@ -1170,6 +1410,30 @@ class DewarpGUI:
         # Use appropriate canvas based on layout mode
         canvas_helper = self.left_canvas if self.layout_mode == "side-by-side" else self.tab_left_canvas
         canvas_widget = self.canvas if self.layout_mode == "side-by-side" else self.tab_canvas
+
+        # Handle scale calibration mode on original
+        if self.scale_mode == "original":
+            # Check if clicking near an existing scale point to drag it
+            scale_point_idx = self.get_scale_point_at_position(event.x, event.y)
+            if scale_point_idx is not None:
+                self.dragging_scale_point = scale_point_idx
+                self.drag_start = (event.x, event.y)
+                canvas_widget.config(cursor="hand2")
+                return
+
+            # Add new point if we don't have 2 yet
+            if len(self.scale_points) < 2:
+                x, y = canvas_helper.canvas_to_image_coords(event.x, event.y)
+                self.scale_points.append((x, y))
+
+                # Always display to show the new point
+                self.display_on_canvas()
+                self.display_on_tab_canvas()
+
+                if len(self.scale_points) == 2:
+                    # Schedule the dialog to appear after canvas updates
+                    self.root.after(10, self.finish_scale_calibration)
+            return
 
         # Check if clicking on existing point
         point_idx = self.get_point_at_position(event.x, event.y)
@@ -1221,6 +1485,14 @@ class DewarpGUI:
             # Display on both canvases to keep them in sync
             self.display_on_canvas()
             self.display_on_tab_canvas()
+        elif self.dragging_scale_point is not None and self.scale_mode == "original":
+            # Update scale point position
+            x, y = canvas_helper.canvas_to_image_coords(event.x, event.y)
+            self.scale_points[self.dragging_scale_point] = (x, y)
+
+            # Display on both canvases to keep them in sync
+            self.display_on_canvas()
+            self.display_on_tab_canvas()
         elif canvas_helper.update_pan(event.x, event.y):
             # Pan the image on the active canvas only
             if self.layout_mode == "side-by-side":
@@ -1240,6 +1512,9 @@ class DewarpGUI:
             # Recalculate dimensions after dragging a point
             if len(self.points) == 4:
                 self.calculate_output_dimensions()
+        elif self.dragging_scale_point is not None:
+            self.dragging_scale_point = None
+            canvas_widget.config(cursor="crosshair")
         elif canvas_helper.panning:
             canvas_helper.end_pan()
             canvas_widget.config(cursor="cross")
@@ -1304,9 +1579,16 @@ class DewarpGUI:
         avg_width_pixels = (top_width + bottom_width) / 2.0
         avg_height_pixels = (left_height + right_height) / 2.0
 
-        # Convert pixels to current units using input image DPI
-        width_value = self.pixels_to_units(avg_width_pixels, dpi=self.input_dpi)
-        height_value = self.pixels_to_units(avg_height_pixels, dpi=self.input_dpi)
+        # Convert pixels to current units
+        # If scale has been calibrated, use scale_factor; otherwise use input image DPI
+        if self.scale_length is not None and self.scale_factor != 1.0:
+            # Scale factor is pixels per unit, so divide pixels by scale_factor to get units
+            width_value = avg_width_pixels / self.scale_factor
+            height_value = avg_height_pixels / self.scale_factor
+        else:
+            # Use input image DPI for conversion
+            width_value = self.pixels_to_units(avg_width_pixels, dpi=self.input_dpi)
+            height_value = self.pixels_to_units(avg_height_pixels, dpi=self.input_dpi)
 
         # Update the dimension fields
         # Set flag to prevent triggering the manual edit callback
@@ -1459,8 +1741,31 @@ class DewarpGUI:
         if self.transformed_image is None:
             return
 
+        # Define overlay callback to draw scale line if in result scale mode
+        def draw_scale_overlay(canvas_image, effective_scale, pan_offset):
+            if self.scale_mode == "result" and len(self.scale_points) > 0:
+                # Draw line first if we have 2 points
+                if len(self.scale_points) == 2:
+                    pt1_x, pt1_y = self.right_canvas.image_to_canvas_coords(
+                        self.scale_points[0][0], self.scale_points[0][1])
+                    pt2_x, pt2_y = self.right_canvas.image_to_canvas_coords(
+                        self.scale_points[1][0], self.scale_points[1][1])
+                    # Draw thin cyan line
+                    cv3.line(canvas_image, int(pt1_x), int(pt1_y),
+                            int(pt2_x), int(pt2_y), color=(0, 255, 255), t=1)
+
+                # Draw endpoints on top with smaller circles
+                for i, pt in enumerate(self.scale_points):
+                    pt_x, pt_y = self.right_canvas.image_to_canvas_coords(pt[0], pt[1])
+                    pt_x, pt_y = int(pt_x), int(pt_y)
+                    # Outer circle (cyan)
+                    cv3.circle(canvas_image, pt_x, pt_y, 5, color=(0, 255, 255), t=1)
+                    # Inner filled circle (cyan)
+                    cv3.circle(canvas_image, pt_x, pt_y, 3, color=(0, 255, 255), fill=True)
+
         # Display result image using right_canvas ImageCanvas helper
-        self.right_canvas.display_image(self.transformed_image)
+        overlay_callback = draw_scale_overlay if self.scale_mode == "result" else None
+        self.right_canvas.display_image(self.transformed_image, overlay_callback=overlay_callback)
         self.result_update_zoom_display()
 
     def on_result_mouse_wheel(self, event):
@@ -1478,19 +1783,72 @@ class DewarpGUI:
         if self.transformed_image is None:
             return
 
-        self.right_canvas.start_pan(event.x, event.y)
-        self.result_canvas.config(cursor="fleur")
+        # Use appropriate canvas based on layout mode
+        canvas_helper = self.right_canvas if self.layout_mode == "side-by-side" else self.tab_right_canvas
+        canvas_widget = self.result_canvas if self.layout_mode == "side-by-side" else self.tab_result_canvas
+
+        # Handle scale calibration mode on result
+        if self.scale_mode == "result":
+            # Check if clicking near an existing scale point to drag it
+            scale_point_idx = self.get_scale_point_at_position(event.x, event.y)
+            if scale_point_idx is not None:
+                self.dragging_scale_point = scale_point_idx
+                self.drag_start = (event.x, event.y)
+                canvas_widget.config(cursor="hand2")
+                return
+
+            # Add new point if we don't have 2 yet
+            if len(self.scale_points) < 2:
+                x, y = canvas_helper.canvas_to_image_coords(event.x, event.y)
+                self.scale_points.append((x, y))
+
+                # Always display to show the new point
+                self.display_result()
+                self.display_on_tab_result()
+
+                if len(self.scale_points) == 2:
+                    # Schedule the dialog to appear after canvas updates
+                    self.root.after(10, self.finish_scale_calibration)
+            return
+
+        canvas_helper.start_pan(event.x, event.y)
+        canvas_widget.config(cursor="fleur")
 
     def on_result_canvas_drag(self, event):
         """Pan the result image with left mouse button"""
-        if self.transformed_image is not None and self.right_canvas.update_pan(event.x, event.y):
+        if self.transformed_image is None:
+            return
+
+        # Use appropriate canvas based on layout mode
+        canvas_helper = self.right_canvas if self.layout_mode == "side-by-side" else self.tab_right_canvas
+
+        if self.dragging_scale_point is not None and self.scale_mode == "result":
+            # Update scale point position
+            x, y = canvas_helper.canvas_to_image_coords(event.x, event.y)
+            self.scale_points[self.dragging_scale_point] = (x, y)
+
+            # Display on both canvases to keep them in sync
             self.display_result()
+            self.display_on_tab_result()
+        elif canvas_helper.update_pan(event.x, event.y):
+            # Pan the image on the active canvas only
+            if self.layout_mode == "side-by-side":
+                self.display_result()
+            else:
+                self.display_on_tab_result()
 
     def on_result_canvas_release(self, event):
         """End panning on result canvas"""
-        if self.right_canvas.panning:
-            self.right_canvas.end_pan()
-            self.result_canvas.config(cursor="arrow")
+        # Use appropriate canvas based on layout mode
+        canvas_helper = self.right_canvas if self.layout_mode == "side-by-side" else self.tab_right_canvas
+        canvas_widget = self.result_canvas if self.layout_mode == "side-by-side" else self.tab_result_canvas
+
+        if self.dragging_scale_point is not None:
+            self.dragging_scale_point = None
+            canvas_widget.config(cursor="crosshair")
+        elif canvas_helper.panning:
+            canvas_helper.end_pan()
+            canvas_widget.config(cursor="arrow")
 
     def on_result_canvas_right_click(self, event):
         """Show context menu on right click in result canvas"""
