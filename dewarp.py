@@ -267,26 +267,21 @@ class DewarpGUI:
         # Setup UI
         self.setup_ui()
 
-        # Create context menus
-        self.result_context_menu = tk.Menu(self.root, tearoff=0)
-        self.result_context_menu.add_command(label="Save Result...", command=self.save_image)
-        self.result_context_menu.add_separator()
-        self.result_context_menu.add_command(label="Use as Original", command=self.use_result_as_original)
-        self.result_context_menu.add_separator()
-        self.result_context_menu.add_command(label="Set Scale...", command=self.start_scale_calibration_result)
-        self.result_context_menu.add_separator()
-        self.result_context_menu.add_command(label="Rotate 90 deg CW", command=lambda: self.rotate_result(clockwise=True))
-        self.result_context_menu.add_command(label="Rotate 90 deg CCW", command=lambda: self.rotate_result(clockwise=False))
-        self.result_context_menu.add_separator()
-        self.result_context_menu.add_checkbutton(label="Crop Mode", variable=self.crop_image, command=self.on_crop_mode_changed)
+        # Track which side the context menu is for
+        self.context_menu_side = None  # "left" or "right"
 
-        self.canvas_context_menu = tk.Menu(self.root, tearoff=0)
-        self.canvas_context_menu.add_command(label="Set Scale...", command=self.start_scale_calibration_original)
-        self.canvas_context_menu.add_separator()
-        self.canvas_context_menu.add_command(label="Rotate 90 deg CW", command=lambda: self.rotate_original(clockwise=True))
-        self.canvas_context_menu.add_command(label="Rotate 90 deg CCW", command=lambda: self.rotate_original(clockwise=False))
-        self.canvas_context_menu.add_separator()
-        self.canvas_context_menu.add_checkbutton(label="Crop Mode", variable=self.crop_image, command=self.on_crop_mode_changed)
+        # Create unified context menu
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="Save Result...", command=self.save_image)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Use as Original", command=self.use_result_as_original)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Set Scale...", command=self.context_menu_set_scale)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Rotate 90 deg CW", command=self.context_menu_rotate_cw)
+        self.context_menu.add_command(label="Rotate 90 deg CCW", command=self.context_menu_rotate_ccw)
+        self.context_menu.add_separator()
+        self.context_menu.add_checkbutton(label="Crop Mode", variable=self.crop_image, command=self.on_crop_mode_changed)
 
     def setup_ui(self):
         # Calculate canvas dimensions based on screen size
@@ -360,13 +355,9 @@ class DewarpGUI:
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
-        self.canvas.bind("<Button-3>", self.on_canvas_right_click)
-        self.canvas.bind("<B3-Motion>", self.on_canvas_pan)
+        self.canvas.bind("<Button-3>", self.on_canvas_context_menu)  # Right-click for context menu
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         self.canvas.bind("<Configure>", self.on_canvas_resize)
-        # Context menu (platform-specific: App key on Windows, Ctrl+Click on Mac, Shift+F10)
-        self.canvas.bind("<App>", self.on_canvas_context_menu)  # Windows context menu key
-        self.canvas.bind("<Shift-Button-3>", self.on_canvas_context_menu)  # Shift+Right-click
 
         # Result Canvas (side-by-side)
         self.right_frame = ttk.Frame(self.sidebyside_container)
@@ -457,12 +448,9 @@ class DewarpGUI:
         self.tab_canvas.bind("<Button-1>", self.on_canvas_click)
         self.tab_canvas.bind("<B1-Motion>", self.on_canvas_drag)
         self.tab_canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
-        self.tab_canvas.bind("<Button-3>", self.on_canvas_right_click)
-        self.tab_canvas.bind("<B3-Motion>", self.on_canvas_pan)
+        self.tab_canvas.bind("<Button-3>", self.on_canvas_context_menu)  # Right-click for context menu
         self.tab_canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         self.tab_canvas.bind("<Configure>", self.on_tab_canvas_resize)
-        self.tab_canvas.bind("<App>", self.on_canvas_context_menu)
-        self.tab_canvas.bind("<Shift-Button-3>", self.on_canvas_context_menu)
 
         self.tab_result_canvas.bind("<Configure>", self.on_tab_result_canvas_resize)
         self.tab_result_canvas.bind("<Button-1>", self.on_result_canvas_click)
@@ -630,6 +618,27 @@ class DewarpGUI:
         self.tab_result_canvas.delete("all")
 
         self.status_label.config(text="Result moved to original. Click 4 corners to continue editing.")
+
+    def context_menu_set_scale(self):
+        """Set scale - dispatches to left or right based on context_menu_side"""
+        if self.context_menu_side == "left":
+            self.start_scale_calibration_original()
+        elif self.context_menu_side == "right":
+            self.start_scale_calibration_result()
+
+    def context_menu_rotate_cw(self):
+        """Rotate clockwise - dispatches to left or right based on context_menu_side"""
+        if self.context_menu_side == "left":
+            self.rotate_original(clockwise=True)
+        elif self.context_menu_side == "right":
+            self.rotate_result(clockwise=True)
+
+    def context_menu_rotate_ccw(self):
+        """Rotate counter-clockwise - dispatches to left or right based on context_menu_side"""
+        if self.context_menu_side == "left":
+            self.rotate_original(clockwise=False)
+        elif self.context_menu_side == "right":
+            self.rotate_result(clockwise=False)
 
     def rotate_original(self, clockwise=True):
         """Rotate the original image 90 degrees"""
@@ -1136,10 +1145,19 @@ class DewarpGUI:
         if self.image is None:
             return
 
+        # Set context menu side to left
+        self.context_menu_side = "left"
+
+        # Configure menu items based on which side we're on
+        # Left side: disable "Save Result" and "Use as Original", enable others
+        self.context_menu.entryconfig("Save Result...", state=tk.DISABLED)
+        self.context_menu.entryconfig("Use as Original", state=tk.DISABLED)
+        self.context_menu.entryconfig("Crop Mode", state=tk.DISABLED)
+
         try:
-            self.canvas_context_menu.tk_popup(event.x_root, event.y_root)
+            self.context_menu.tk_popup(event.x_root, event.y_root)
         finally:
-            self.canvas_context_menu.grab_release()
+            self.context_menu.grab_release()
 
     def on_canvas_pan(self, event):
         """Pan the image with right mouse button"""
@@ -1855,11 +1873,20 @@ class DewarpGUI:
         if self.transformed_image is None:
             return
 
+        # Set context menu side to right
+        self.context_menu_side = "right"
+
+        # Configure menu items based on which side we're on
+        # Right side: enable "Save Result", "Use as Original", and "Crop Mode"
+        self.context_menu.entryconfig("Save Result...", state=tk.NORMAL)
+        self.context_menu.entryconfig("Use as Original", state=tk.NORMAL)
+        self.context_menu.entryconfig("Crop Mode", state=tk.NORMAL)
+
         # Show context menu at cursor position
         try:
-            self.result_context_menu.tk_popup(event.x_root, event.y_root)
+            self.context_menu.tk_popup(event.x_root, event.y_root)
         finally:
-            self.result_context_menu.grab_release()
+            self.context_menu.grab_release()
 
     def save_image(self):
         if self.transformed_image is None:
