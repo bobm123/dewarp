@@ -281,6 +281,9 @@ class DewarpGUI:
         self.context_menu.add_command(label="Rotate 90 deg CW", command=self.context_menu_rotate_cw)
         self.context_menu.add_command(label="Rotate 90 deg CCW", command=self.context_menu_rotate_ccw)
         self.context_menu.add_separator()
+        self.context_menu.add_command(label="Flip Horizontal", command=self.context_menu_flip_horizontal)
+        self.context_menu.add_command(label="Flip Vertical", command=self.context_menu_flip_vertical)
+        self.context_menu.add_separator()
         self.context_menu.add_checkbutton(label="Crop Mode", variable=self.crop_image, command=self.on_crop_mode_changed)
 
     def setup_ui(self):
@@ -640,6 +643,20 @@ class DewarpGUI:
         elif self.context_menu_side == "right":
             self.rotate_result(clockwise=False)
 
+    def context_menu_flip_horizontal(self):
+        """Flip horizontal - dispatches to left or right based on context_menu_side"""
+        if self.context_menu_side == "left":
+            self.flip_original(horizontal=True)
+        elif self.context_menu_side == "right":
+            self.flip_result(horizontal=True)
+
+    def context_menu_flip_vertical(self):
+        """Flip vertical - dispatches to left or right based on context_menu_side"""
+        if self.context_menu_side == "left":
+            self.flip_original(horizontal=False)
+        elif self.context_menu_side == "right":
+            self.flip_result(horizontal=False)
+
     def rotate_original(self, clockwise=True):
         """Rotate the original image 90 degrees"""
         if self.image is None:
@@ -677,6 +694,43 @@ class DewarpGUI:
         direction = "clockwise" if clockwise else "counter-clockwise"
         self.status_label.config(text=f"Image rotated 90 deg {direction}. Click 4 corners to transform.")
 
+    def flip_original(self, horizontal=True):
+        """Flip the original image horizontally or vertically"""
+        if self.image is None:
+            return
+
+        # Flip the image (1 = horizontal, 0 = vertical)
+        flip_code = 1 if horizontal else 0
+        self.original_image = cv2.flip(self.original_image, flip_code)
+        self.image = self.original_image.copy()
+
+        # Clear points and result since flip invalidates them
+        self.points = []
+        self.transformed_image = None
+        self.transform_btn.config(state=tk.DISABLED)
+        self.tab_transform_btn.config(state=tk.DISABLED)
+        self.file_menu.entryconfig("Save Result...", state=tk.DISABLED)
+
+        # Clear dimension fields
+        self._updating_dimensions = True
+        self.width_var.set("")
+        self.height_var.set("")
+        self._updating_dimensions = False
+        self.dimensions_manually_set = False
+
+        # Reset view and display
+        self.left_canvas.reset_view()
+        self.tab_left_canvas.reset_view()
+        self.display_on_canvas()
+        self.display_on_tab_canvas()
+
+        # Clear result canvases
+        self.result_canvas.delete("all")
+        self.tab_result_canvas.delete("all")
+
+        direction = "horizontal" if horizontal else "vertical"
+        self.status_label.config(text=f"Image flipped {direction}. Click 4 corners to transform.")
+
     def rotate_result(self, clockwise=True):
         """Rotate the result image 90 degrees"""
         if self.transformed_image is None:
@@ -694,6 +748,24 @@ class DewarpGUI:
 
         direction = "clockwise" if clockwise else "counter-clockwise"
         self.status_label.config(text=f"Result rotated 90 deg {direction}.")
+
+    def flip_result(self, horizontal=True):
+        """Flip the result image horizontally or vertically"""
+        if self.transformed_image is None:
+            return
+
+        # Flip the result image (1 = horizontal, 0 = vertical)
+        flip_code = 1 if horizontal else 0
+        self.transformed_image = cv2.flip(self.transformed_image, flip_code)
+
+        # Reset view and display result
+        self.right_canvas.reset_view()
+        self.tab_right_canvas.reset_view()
+        self.display_result()
+        self.display_on_tab_result()
+
+        direction = "horizontal" if horizontal else "vertical"
+        self.status_label.config(text=f"Result flipped {direction}.")
 
     def start_scale_calibration_original(self):
         """Start scale calibration mode on original image"""
