@@ -345,6 +345,7 @@ class DewarpGUI:
         action_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
 
         ttk.Button(action_overlay, text="Reset", command=self.reset_points, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Button(action_overlay, text="Auto", command=self.auto_detect_corners, width=6).pack(side=tk.LEFT, padx=1)
         self.transform_btn = ttk.Button(action_overlay, text="Apply", command=self.apply_transform, state=tk.DISABLED, width=6)
         self.transform_btn.pack(side=tk.LEFT, padx=1)
 
@@ -470,6 +471,7 @@ class DewarpGUI:
         tab_action_overlay = ttk.Frame(self.tab_left_frame, relief=tk.RAISED, borderwidth=1)
         tab_action_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
         ttk.Button(tab_action_overlay, text="Reset", command=self.reset_points, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Button(tab_action_overlay, text="Auto", command=self.auto_detect_corners, width=6).pack(side=tk.LEFT, padx=1)
         self.tab_transform_btn = ttk.Button(tab_action_overlay, text="Apply", command=self.apply_transform, state=tk.DISABLED, width=6)
         self.tab_transform_btn.pack(side=tk.LEFT, padx=1)
 
@@ -1643,6 +1645,158 @@ class DewarpGUI:
         if self.image is not None:
             self.display_on_canvas()
             self.status_label.config(text="Points reset. Click 4 corner points to begin.")
+
+    def auto_detect_corners(self):
+        """Automatically detect document corners using edge and contour detection"""
+        if self.image is None:
+            self.status_label.config(text="Please load an image first")
+            return
+
+        try:
+            # Convert RGB to grayscale
+            gray = cv2.cvtColor(self.image, cv2.COLOR_RGB2GRAY)
+
+            # Apply Gaussian blur to reduce noise
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+            # Apply Canny edge detection with adaptive thresholds
+            # Use median-based threshold calculation for robustness
+            median = np.median(blurred)
+            lower = int(max(0, 0.66 * median))
+            upper = int(min(255, 1.33 * median))
+            edges = cv2.Canny(blurred, lower, upper, apertureSize=3)
+
+            # Dilate edges slightly to close small gaps
+            kernel = np.ones((3, 3), np.uint8)
+            edges = cv2.dilate(edges, kernel, iterations=1)
+
+            # Find contours
+            contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+            # Sort contours by area (largest first)
+            contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+            # Image dimensions for boundary detection
+            h, w = self.image.shape[:2]
+            image_area = h * w
+
+            # Try to find a 4-sided contour with high contrast
+            document_contour = None
+            for contour in contours[:15]:  # Check top 15 largest contours
+                # Calculate perimeter
+                peri = cv2.arcLength(contour, True)
+
+                # Approximate contour to polygon
+                # Use slightly higher epsilon to handle rounded corners
+                approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+
+                # Check if polygon has 4 vertices
+                if len(approx) == 4:
+                    # Validate by area - document should be at least 15% of image, at most 98%
+                    area = cv2.contourArea(approx)
+
+                    if 0.15 * image_area < area < 0.98 * image_area:
+                        document_contour = approx
+                        break
+
+            # If no 4-sided contour found, try to detect document touching edges
+            if document_contour is None:
+                # Look for largest contour that might be partially off-screen
+                for contour in contours[:10]:
+                    area = cv2.contourArea(contour)
+                    if area > 0.20 * image_area:  # Must be substantial
+                        peri = cv2.arcLength(contour, True)
+                        approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+
+                        # Accept contours with 3-6 vertices (partial documents)
+                        if 3 <= len(approx) <= 6:
+                            # Check if any points are near image boundaries
+                            points = approx.reshape(-1, 2)
+                            near_boundary = False
+                            margin = 5  # pixels
+
+                            for pt in points:
+                                x, y = pt
+                                if (x < margin or x > w - margin or
+                                    y < margin or y > h - margin):
+                                    near_boundary = True
+                                    break
+
+                            if near_boundary:
+                                # Supplement with corner points if needed
+                                corner_points = self._supplement_with_corners(approx, w, h)
+                                if len(corner_points) == 4:
+                                    document_contour = corner_points
+                                    break
+
+            if document_contour is not None:
+                # Extract corner points
+                if len(document_contour) == 4:
+                    corners = document_contour.reshape(4, 2).astype(float)
+                else:
+                    corners = document_contour
+
+                # Convert to list of tuples (matching self.points format)
+                self.points = [(float(x), float(y)) for x, y in corners]
+
+                # Order points properly
+                ordered = self.order_points(self.points)
+                self.points = [(float(x), float(y)) for x, y in ordered]
+
+                # Update display
+                self.display_on_canvas()
+                self.display_on_tab_canvas()
+
+                # Calculate dimensions and enable transform
+                self.calculate_output_dimensions()
+                self.transform_btn.config(state=tk.NORMAL)
+                self.tab_transform_btn.config(state=tk.NORMAL)
+
+                self.status_label.config(text="Auto-detected 4 corners. Adjust if needed, then click 'Apply'.")
+            else:
+                self.status_label.config(text="Could not detect document corners. Try manual selection.")
+
+        except Exception as e:
+            self.status_label.config(text=f"Auto-detection failed: {str(e)}")
+
+    def _supplement_with_corners(self, contour, width, height):
+        """Supplement partial contour with image corner points"""
+        points = contour.reshape(-1, 2)
+        margin = 10
+
+        # Determine which corners are missing
+        corners_present = {
+            'tl': False, 'tr': False, 'bl': False, 'br': False
+        }
+
+        for pt in points:
+            x, y = pt
+            if x < margin and y < margin:
+                corners_present['tl'] = True
+            elif x > width - margin and y < margin:
+                corners_present['tr'] = True
+            elif x < margin and y > height - margin:
+                corners_present['bl'] = True
+            elif x > width - margin and y > height - margin:
+                corners_present['br'] = True
+
+        # Add missing corners
+        result_points = list(points)
+
+        if not corners_present['tl']:
+            result_points.append([0, 0])
+        if not corners_present['tr']:
+            result_points.append([width - 1, 0])
+        if not corners_present['bl']:
+            result_points.append([0, height - 1])
+        if not corners_present['br']:
+            result_points.append([width - 1, height - 1])
+
+        # If we have exactly 4 points now, return them
+        if len(result_points) == 4:
+            return np.array(result_points).reshape(4, 1, 2).astype(np.int32)
+
+        return None
 
     def order_points(self, pts):
         """Order points as: top-left, top-right, bottom-right, bottom-left"""

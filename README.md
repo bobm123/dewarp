@@ -116,7 +116,11 @@ python dewarp.py --dpi 600 --units mm document.jpg
    - Dialog appears automatically after second point
 
 3. **Select Corners**:
-   - Click on 4 corner points (any order - they're auto-sorted)
+   - **Auto-Detect**: Click the "Auto" button to automatically detect document corners
+     - Works best with light documents on dark backgrounds or vice versa
+     - Handles documents extending beyond image edges
+     - Falls back to manual selection if detection fails
+   - **Manual Selection**: Click on 4 corner points (any order - they're auto-sorted)
    - Red filled circles with blue outlines
    - Green lines automatically connect to form proper quadrilateral
    - Lines update intelligently if points are crossed
