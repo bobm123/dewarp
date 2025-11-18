@@ -126,7 +126,8 @@ python dewarp.py --auto-detect image.jpg
      - Enable via `--auto-detect` flag or in `File -> Preferences`
      - When enabled, corners are automatically detected on image load
      - Click the "Auto" button to manually trigger detection at any time
-     - Works best with light documents on dark backgrounds or vice versa
+     - Works with light documents on dark backgrounds or vice versa
+     - Intelligently skips image boundaries to find actual documents within scenes
      - Handles documents extending beyond image edges
      - Falls back to manual selection if detection fails
    - **Manual Selection**: Click on 4 corner points (any order - they're auto-sorted)

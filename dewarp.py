@@ -88,6 +88,11 @@ class ImageCanvas:
         """Get current zoom level as percentage"""
         return int(self.zoom_level * self.base_scale_factor * 100)
 
+    def clear(self):
+        """Clear the canvas"""
+        self.canvas.delete("all")
+        self.photo = None
+
     def canvas_to_image_coords(self, canvas_x, canvas_y):
         """Convert canvas coordinates to image coordinates"""
         effective_scale = self.base_scale_factor * self.zoom_level
@@ -198,6 +203,7 @@ class DewarpGUI:
         "Custom": None,
         "US Letter": (215.9, 279.4),
         "US Legal": (215.9, 355.6),
+        "Tabloid": (431.8, 279.4),
         "A4": (210.0, 297.0),
         "A5": (148.0, 210.0),
         "Post-it Note (3x3)": (76.2, 76.2),
@@ -336,7 +342,7 @@ class DewarpGUI:
 
         # Bind keyboard shortcuts
         self.root.bind('<Control-o>', lambda e: self.load_image())
-        self.root.bind('<Control-s>', lambda e: self.save_image() if self.transformed_image else None)
+        self.root.bind('<Control-s>', lambda e: self.save_image() if self.transformed_image is not None else None)
         self.root.bind('r', self.on_key_rotate_right)
         self.root.bind('R', self.on_key_rotate_right)
         self.root.bind('l', self.on_key_rotate_left)
@@ -1408,6 +1414,12 @@ class DewarpGUI:
         self.transformed_image = None
         self.left_canvas.reset_view()
 
+        # Clear the result canvas
+        if self.right_canvas:
+            self.right_canvas.clear()
+        if hasattr(self, 'tab_right_canvas') and self.tab_right_canvas:
+            self.tab_right_canvas.clear()
+
         # Clear dimension fields and reset manual flag
         self._updating_dimensions = True
         self.width_var.set("")
@@ -1422,7 +1434,7 @@ class DewarpGUI:
 
         # Auto-detect corners if preference is enabled
         if self.auto_detect_on_load.get():
-            self.auto_detect_corners()
+            self.auto_detect_corners(show_debug=False)
 
     def display_on_canvas(self):
         if self.image is None:
@@ -1755,24 +1767,38 @@ class DewarpGUI:
             self.display_on_canvas()
             self.status_label.config(text="Points reset. Click 4 corner points to begin.")
 
-    def auto_detect_corners(self):
+    def auto_detect_corners(self, show_debug=False):
         """Automatically detect document corners using edge and contour detection"""
         if self.image is None:
             self.status_label.config(text="Please load an image first")
             return
 
         try:
+            # Image dimensions
+            h, w = self.image.shape[:2]
+            image_area = h * w
+
             # Convert RGB to grayscale
             gray = cv2.cvtColor(self.image, cv2.COLOR_RGB2GRAY)
 
             # Apply Gaussian blur to reduce noise
             blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
-            # Apply Canny edge detection with adaptive thresholds
-            # Use median-based threshold calculation for robustness
+            # Apply Canny edge detection with improved adaptive thresholds
+            # Use median-based thresholds, but with better handling for light/dark documents
             median = np.median(blurred)
-            lower = int(max(0, 0.66 * median))
-            upper = int(min(255, 1.33 * median))
+
+            # For dark backgrounds (median < 100), use fixed thresholds that work better
+            # For light backgrounds, use adaptive thresholds
+            if median < 100:
+                # Dark background (like book on table) - use higher fixed thresholds
+                lower = 50
+                upper = 150
+            else:
+                # Light background - use adaptive thresholds
+                lower = int(max(0, 0.66 * median))
+                upper = int(min(255, 1.33 * median))
+
             edges = cv2.Canny(blurred, lower, upper, apertureSize=3)
 
             # Dilate edges slightly to close small gaps
@@ -1782,31 +1808,61 @@ class DewarpGUI:
             # Find contours
             contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
+            # If very few edge pixels, try with more aggressive edge detection
+            edge_pixel_ratio = np.count_nonzero(edges) / image_area
+            if edge_pixel_ratio < 0.05 and len(contours) < 10:
+                # Try again with different parameters
+                edges2 = cv2.Canny(blurred, 30, 100, apertureSize=5)
+                edges2 = cv2.dilate(edges2, kernel, iterations=2)
+                contours2, _ = cv2.findContours(edges2, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+                if len(contours2) > len(contours):
+                    contours = contours2
+                    edges = edges2
+
             # Sort contours by area (largest first)
             contours = sorted(contours, key=cv2.contourArea, reverse=True)
 
-            # Image dimensions for boundary detection
-            h, w = self.image.shape[:2]
-            image_area = h * w
-
-            # Try to find a 4-sided contour with high contrast
+            # Find the largest quadrilateral contour
+            # Simple approach: find biggest 4-sided shape that isn't the image boundary
             document_contour = None
-            for contour in contours[:15]:  # Check top 15 largest contours
-                # Calculate perimeter
+            border_threshold = min(h, w) * 0.02  # 2% of smaller dimension
+
+            for contour in contours[:20]:  # Check top 20 largest contours
                 peri = cv2.arcLength(contour, True)
 
-                # Approximate contour to polygon
-                # Use slightly higher epsilon to handle rounded corners
-                approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+                # Try different epsilon values to get 4 vertices
+                for epsilon_factor in [0.02, 0.03, 0.04, 0.05]:
+                    approx = cv2.approxPolyDP(contour, epsilon_factor * peri, True)
 
-                # Check if polygon has 4 vertices
-                if len(approx) == 4:
-                    # Validate by area - document should be at least 15% of image, at most 98%
-                    area = cv2.contourArea(approx)
+                    if len(approx) == 4:
+                        area = cv2.contourArea(approx)
 
-                    if 0.15 * image_area < area < 0.98 * image_area:
-                        document_contour = approx
-                        break
+                        # Must be substantial (>5%) but not the whole image (<95%)
+                        if 0.05 * image_area < area < 0.95 * image_area:
+                            # Check if this is just the image boundary
+                            corners = approx.reshape(-1, 2)
+                            corners_at_boundary = 0
+
+                            for x, y in corners:
+                                # A corner is "at boundary" if it's very close to an edge
+                                at_left = x < border_threshold
+                                at_right = x > (w - border_threshold)
+                                at_top = y < border_threshold
+                                at_bottom = y > (h - border_threshold)
+
+                                # Must be near a corner (two edges), not just one edge
+                                if (at_left or at_right) and (at_top or at_bottom):
+                                    corners_at_boundary += 1
+
+                            # Skip if all 4 corners are at image corners (it's the boundary)
+                            if corners_at_boundary >= 4:
+                                continue
+
+                            document_contour = approx
+                            break
+
+                if document_contour is not None:
+                    break
 
             # If no 4-sided contour found, try to detect document touching edges
             if document_contour is None:
@@ -1862,11 +1918,80 @@ class DewarpGUI:
                 self.tab_transform_btn.config(state=tk.NORMAL)
 
                 self.status_label.config(text="Auto-detected 4 corners. Adjust if needed, then click 'Apply'.")
+
+                # Show debug window if enabled
+                if show_debug:
+                    self._show_detection_debug(edges, contours, document_contour, median, lower, upper, h, w)
             else:
                 self.status_label.config(text="Could not detect document corners. Try manual selection.")
 
+                # Show debug window to help diagnose
+                if show_debug:
+                    self._show_detection_debug(edges, contours, None, median, lower, upper, h, w)
+
         except Exception as e:
             self.status_label.config(text=f"Auto-detection failed: {str(e)}")
+
+    def _show_detection_debug(self, edges, contours, detected_contour, median, lower, upper, h, w):
+        """Show debug window with edge detection and contour analysis"""
+        # Create debug visualization
+        # Left side: edges, Right side: original with top contours
+
+        # Convert edges to RGB for display
+        edges_rgb = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
+
+        # Create contour visualization on original image
+        contour_vis = self.image.copy()
+
+        # Draw top 5 contours in different colors
+        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255)]
+        for i, contour in enumerate(contours[:5]):
+            cv2.drawContours(contour_vis, [contour], 0, colors[i], 2)
+            # Label with contour number and area
+            area = cv2.contourArea(contour)
+            M = cv2.moments(contour)
+            if M["m00"] > 0:
+                cx = int(M["m10"] / M["m00"])
+                cy = int(M["m01"] / M["m00"])
+                pct = 100 * area / (h * w)
+                cv2.putText(contour_vis, f"#{i+1} {pct:.0f}%", (cx-30, cy),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, colors[i], 2)
+
+        # If detected, highlight it in thick green
+        if detected_contour is not None:
+            cv2.drawContours(contour_vis, [detected_contour], 0, (0, 255, 0), 4)
+
+        # Scale images to fit in debug window
+        max_debug_size = 400
+        scale = min(max_debug_size / h, max_debug_size / w)
+        new_h, new_w = int(h * scale), int(w * scale)
+
+        edges_small = cv2.resize(edges_rgb, (new_w, new_h))
+        contour_small = cv2.resize(contour_vis, (new_w, new_h))
+
+        # Combine side by side
+        combined = np.hstack([edges_small, contour_small])
+
+        # Add info text
+        info_text = f"Median: {median:.0f} | Canny: {lower}-{upper} | Contours: {len(contours)}"
+        cv2.putText(combined, info_text, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+        # Create popup window
+        debug_window = tk.Toplevel(self.root)
+        debug_window.title("Corner Detection Debug")
+        debug_window.geometry(f"{new_w*2 + 20}x{new_h + 60}")
+
+        # Convert to PIL and display
+        pil_debug = Image.fromarray(combined)
+        photo = ImageTk.PhotoImage(pil_debug)
+
+        label = tk.Label(debug_window, image=photo)
+        label.image = photo  # Keep reference
+        label.pack(pady=5)
+
+        # Add close button
+        close_btn = tk.Button(debug_window, text="Close", command=debug_window.destroy)
+        close_btn.pack(pady=5)
 
     def _supplement_with_corners(self, contour, width, height):
         """Supplement partial contour with image corner points"""
