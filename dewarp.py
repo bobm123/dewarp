@@ -288,6 +288,9 @@ class DewarpGUI:
         # Track which side the context menu is for
         self.context_menu_side = None  # "left" or "right"
 
+        # Track which canvas currently has focus/cursor for keyboard shortcuts
+        self.focused_canvas = None  # "left" or "right"
+
         # Create unified context menu
         self.context_menu = tk.Menu(self.root, tearoff=0)
         self.context_menu.add_command(label="Save Result...", command=self.save_image)
@@ -334,6 +337,10 @@ class DewarpGUI:
         # Bind keyboard shortcuts
         self.root.bind('<Control-o>', lambda e: self.load_image())
         self.root.bind('<Control-s>', lambda e: self.save_image() if self.transformed_image else None)
+        self.root.bind('r', self.on_key_rotate_right)
+        self.root.bind('R', self.on_key_rotate_right)
+        self.root.bind('l', self.on_key_rotate_left)
+        self.root.bind('L', self.on_key_rotate_left)
 
         # Canvas Frame - this will hold either side-by-side or tabbed layout
         self.canvas_container = ttk.Frame(self.root)
@@ -380,6 +387,8 @@ class DewarpGUI:
         self.canvas.bind("<Button-3>", self.on_canvas_context_menu)  # Right-click for context menu
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         self.canvas.bind("<Configure>", self.on_canvas_resize)
+        self.canvas.bind("<Enter>", lambda e: setattr(self, 'focused_canvas', 'left'))
+        self.canvas.bind("<Leave>", lambda e: setattr(self, 'focused_canvas', None))
 
         # Result Canvas (side-by-side)
         self.right_frame = ttk.Frame(self.sidebyside_container)
@@ -399,6 +408,8 @@ class DewarpGUI:
         self.result_canvas.bind("<ButtonRelease-1>", self.on_result_canvas_release)
         self.result_canvas.bind("<Button-3>", self.on_result_canvas_right_click)
         self.result_canvas.bind("<MouseWheel>", self.on_result_mouse_wheel)
+        self.result_canvas.bind("<Enter>", lambda e: setattr(self, 'focused_canvas', 'right'))
+        self.result_canvas.bind("<Leave>", lambda e: setattr(self, 'focused_canvas', None))
 
         # Dimension controls overlay (upper left corner of right canvas)
         dimensions_overlay = ttk.Frame(self.right_frame, relief=tk.RAISED, borderwidth=1, padding="5")
@@ -482,6 +493,8 @@ class DewarpGUI:
         self.tab_canvas.bind("<Button-3>", self.on_canvas_context_menu)  # Right-click for context menu
         self.tab_canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         self.tab_canvas.bind("<Configure>", self.on_tab_canvas_resize)
+        self.tab_canvas.bind("<Enter>", lambda e: setattr(self, 'focused_canvas', 'left'))
+        self.tab_canvas.bind("<Leave>", lambda e: setattr(self, 'focused_canvas', None))
 
         self.tab_result_canvas.bind("<Configure>", self.on_tab_result_canvas_resize)
         self.tab_result_canvas.bind("<Button-1>", self.on_result_canvas_click)
@@ -489,6 +502,8 @@ class DewarpGUI:
         self.tab_result_canvas.bind("<ButtonRelease-1>", self.on_result_canvas_release)
         self.tab_result_canvas.bind("<Button-3>", self.on_result_canvas_right_click)
         self.tab_result_canvas.bind("<MouseWheel>", self.on_result_mouse_wheel)
+        self.tab_result_canvas.bind("<Enter>", lambda e: setattr(self, 'focused_canvas', 'right'))
+        self.tab_result_canvas.bind("<Leave>", lambda e: setattr(self, 'focused_canvas', None))
 
         # Create overlay controls for tab canvases
         tab_action_overlay = ttk.Frame(self.tab_left_frame, relief=tk.RAISED, borderwidth=1)
@@ -730,6 +745,20 @@ class DewarpGUI:
             self.flip_original(horizontal=False)
         elif self.context_menu_side == "right":
             self.flip_result(horizontal=False)
+
+    def on_key_rotate_right(self, event):
+        """Handle 'R' key press - rotate clockwise based on focused canvas"""
+        if self.focused_canvas == "left":
+            self.rotate_original(clockwise=True)
+        elif self.focused_canvas == "right":
+            self.rotate_result(clockwise=True)
+
+    def on_key_rotate_left(self, event):
+        """Handle 'L' key press - rotate counter-clockwise based on focused canvas"""
+        if self.focused_canvas == "left":
+            self.rotate_original(clockwise=False)
+        elif self.focused_canvas == "right":
+            self.rotate_result(clockwise=False)
 
     def rotate_original(self, clockwise=True):
         """Rotate the original image 90 degrees"""

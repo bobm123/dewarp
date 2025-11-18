@@ -187,6 +187,8 @@ python dewarp.py --auto-detect image.jpg
 
 - `Ctrl+O`: Load Image
 - `Ctrl+S`: Save Result (when available)
+- `R`: Rotate 90 degrees clockwise (applies to canvas under cursor)
+- `L`: Rotate 90 degrees counter-clockwise (applies to canvas under cursor)
 - `Alt+F4`: Exit
 
 ### Mouse Controls
