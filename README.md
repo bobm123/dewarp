@@ -15,6 +15,7 @@ An interactive perspective transform tool for correcting image distortion. Selec
   - Works on original image before transformation
   - Works on result image after transformation
   - Draggable scale endpoints for fine-tuning
+- **Standard Page Sizes**: Quick selection of US Letter, US Legal, A4, A5, and Post-it Note sizes
 - **Flexible Units**: Output size in millimeters, inches, or pixels with configurable DPI
 - **Real-time Visual Feedback**: Clean point markers with green connecting lines
 - **Two Transform Modes**:
@@ -140,13 +141,17 @@ python dewarp.py --auto-detect image.jpg
    - **Drag Points**: Click and drag any point to adjust precisely
    - **Current Zoom**: Displayed as percentage in upper-right
 
-5. **Review Dimensions** (auto-calculated):
-   - After selecting 4 points, dimensions are calculated from point distances
-   - Width = average of top and bottom edge lengths
-   - Height = average of left and right edge lengths
-   - Dimensions update as you drag points (until manually edited)
-   - Manual edits lock the dimensions
-   - If scale was calibrated, dimensions use scale factor instead of DPI
+5. **Set Output Dimensions**:
+   - **Page Size Selector**: Choose from standard sizes (US Letter, US Legal, A4, A5, Post-it Notes)
+     - Automatically fills width and height fields
+     - Values convert to current units (mm/inches/pixels)
+   - **Auto-Calculated**: After selecting 4 points, dimensions calculated from point distances
+     - Width = average of top and bottom edge lengths
+     - Height = average of left and right edge lengths
+     - Dimensions update as you drag points (until manually edited)
+   - **Manual Entry**: Type custom dimensions directly
+     - Manual edits lock dimensions and switch to "Custom" page size
+     - If scale was calibrated, dimensions use scale factor instead of DPI
 
 6. **Configure Settings** (Optional):
    - Click `File -> Preferences` to adjust:

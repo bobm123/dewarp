@@ -193,6 +193,17 @@ class ImageCanvas:
 
 
 class DewarpGUI:
+    # Standard page sizes in mm (width x height)
+    PAGE_SIZES = {
+        "Custom": None,
+        "US Letter": (215.9, 279.4),
+        "US Legal": (215.9, 355.6),
+        "A4": (210.0, 297.0),
+        "A5": (148.0, 210.0),
+        "Post-it Note (3x3)": (76.2, 76.2),
+        "Post-it Note (3x5)": (76.2, 127.0),
+    }
+
     def __init__(self, root, dpi=300, units="mm", crop=False, auto_detect=False):
         self.root = root
         self.root.title("Dewarp")
@@ -403,19 +414,28 @@ class DewarpGUI:
         self.result_zoom_label = ttk.Label(result_zoom_overlay, text="100%", width=5)
         self.result_zoom_label.pack(side=tk.LEFT, padx=3)
 
+        # Page size selector
+        ttk.Label(dimensions_overlay, text="Page Size:", font=('TkDefaultFont', 8)).grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
+        self.page_size_var = tk.StringVar(value="Custom")
+        self.page_size_combo = ttk.Combobox(dimensions_overlay, textvariable=self.page_size_var,
+                                             values=list(self.PAGE_SIZES.keys()),
+                                             state='readonly', width=18)
+        self.page_size_combo.grid(row=0, column=1, columnspan=3, sticky=tk.W, padx=3, pady=(0, 5))
+        self.page_size_combo.bind('<<ComboboxSelected>>', self.on_page_size_changed)
+
         self.width_label = ttk.Label(dimensions_overlay, text="Width (mm):", font=('TkDefaultFont', 8))
-        self.width_label.grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
+        self.width_label.grid(row=1, column=0, sticky=tk.E, padx=(0, 3))
         self.width_var = tk.StringVar(value="")  # Empty until points selected
         self.width_var.trace_add('write', self.on_dimension_changed)
         self.width_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=1, width=8)
-        self.width_spinbox.grid(row=0, column=1, padx=3)
+        self.width_spinbox.grid(row=1, column=1, padx=3)
 
         self.height_label = ttk.Label(dimensions_overlay, text="Height (mm):", font=('TkDefaultFont', 8))
-        self.height_label.grid(row=0, column=2, sticky=tk.E, padx=(5, 3))
+        self.height_label.grid(row=1, column=2, sticky=tk.E, padx=(5, 3))
         self.height_var = tk.StringVar(value="")  # Empty until points selected
         self.height_var.trace_add('write', self.on_dimension_changed)
         self.height_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8)
-        self.height_spinbox.grid(row=0, column=3, padx=3)
+        self.height_spinbox.grid(row=1, column=3, padx=3)
 
         # Status Bar at bottom
         status_frame = ttk.Frame(self.root, relief=tk.SUNKEN, padding="2")
@@ -497,11 +517,16 @@ class DewarpGUI:
         self.tab_result_zoom_label = ttk.Label(tab_result_zoom_overlay, text="100%", width=5)
         self.tab_result_zoom_label.pack(side=tk.LEFT, padx=3)
 
-        # Share dimension controls between both layouts
-        ttk.Label(tab_dimensions_overlay, text="Width (mm):", font=('TkDefaultFont', 8)).grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
-        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=1, width=8).grid(row=0, column=1, padx=3)
-        ttk.Label(tab_dimensions_overlay, text="Height (mm):", font=('TkDefaultFont', 8)).grid(row=0, column=2, sticky=tk.E, padx=(5, 3))
-        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8).grid(row=0, column=3, padx=3)
+        # Share dimension controls between both layouts (page size selector shared via self.page_size_var)
+        ttk.Label(tab_dimensions_overlay, text="Page Size:", font=('TkDefaultFont', 8)).grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
+        ttk.Combobox(tab_dimensions_overlay, textvariable=self.page_size_var,
+                     values=list(self.PAGE_SIZES.keys()),
+                     state='readonly', width=18).grid(row=0, column=1, columnspan=3, sticky=tk.W, padx=3, pady=(0, 5))
+
+        ttk.Label(tab_dimensions_overlay, text="Width (mm):", font=('TkDefaultFont', 8)).grid(row=1, column=0, sticky=tk.E, padx=(0, 3))
+        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=1, width=8).grid(row=1, column=1, padx=3)
+        ttk.Label(tab_dimensions_overlay, text="Height (mm):", font=('TkDefaultFont', 8)).grid(row=1, column=2, sticky=tk.E, padx=(5, 3))
+        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8).grid(row=1, column=3, padx=3)
 
         # Add tabs to notebook
         self.notebook.add(self.tab_left_frame, text="Original")
@@ -561,6 +586,46 @@ class DewarpGUI:
         """Called when width or height field is modified"""
         # Only mark as manually set if we're not programmatically updating
         if not self._updating_dimensions:
+            self.dimensions_manually_set = True
+            # User manually changed dimensions, reset to Custom
+            self.page_size_var.set("Custom")
+
+    def on_page_size_changed(self, event=None):
+        """Called when page size is selected from dropdown"""
+        selected_size = self.page_size_var.get()
+        page_dims = self.PAGE_SIZES.get(selected_size)
+
+        if page_dims is not None:
+            # Standard page size selected - update dimensions
+            width_mm, height_mm = page_dims
+
+            # Convert to current units
+            units = self.units.get()
+            if units == "mm":
+                width_val = width_mm
+                height_val = height_mm
+            elif units == "inches":
+                width_val = width_mm / 25.4
+                height_val = height_mm / 25.4
+            elif units == "pixels":
+                try:
+                    dpi = int(self.dpi_var.get())
+                except ValueError:
+                    dpi = 300
+                width_val = (width_mm / 25.4) * dpi
+                height_val = (height_mm / 25.4) * dpi
+
+            # Update the dimension fields
+            self._updating_dimensions = True
+            if units == "pixels":
+                self.width_var.set(str(int(round(width_val))))
+                self.height_var.set(str(int(round(height_val))))
+            else:
+                self.width_var.set(f"{width_val:.1f}")
+                self.height_var.set(f"{height_val:.1f}")
+            self._updating_dimensions = False
+
+            # Mark as manually set since user chose specific dimensions
             self.dimensions_manually_set = True
 
     def on_dpi_changed(self, *args):
