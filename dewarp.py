@@ -11,6 +11,10 @@ import numpy as np
 import tkinter as tk
 from tkinter import filedialog, ttk  # Convenience imports for dialogs and themed widgets
 from PIL import Image, ImageTk
+from pillow_heif import register_heif_opener  # For HEIC file support
+
+# Register HEIF opener with Pillow to enable HEIC support
+register_heif_opener()
 
 
 class ImageCanvas:
@@ -1245,7 +1249,7 @@ class DewarpGUI:
     def load_image(self):
         file_path = filedialog.askopenfilename(
             title="Select Image",
-            filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp"), ("All files", "*.*")]
+            filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp *.heic *.heif"), ("All files", "*.*")]
         )
 
         if file_path:
@@ -1253,11 +1257,24 @@ class DewarpGUI:
 
     def load_image_from_path(self, file_path):
         """Load an image from the given file path"""
-        # Load image with OpenCV
-        self.original_image = cv3.imread(file_path)
-        if self.original_image is None:
-            self.status_label.config(text="Error: Could not load image")
-            return
+        # Check if file is HEIC format (needs special handling)
+        is_heic = file_path.lower().endswith(('.heic', '.heif'))
+
+        if is_heic:
+            # Load HEIC with PIL/pillow-heif, then convert to numpy array for OpenCV
+            try:
+                pil_image = Image.open(file_path)
+                # Convert PIL image to RGB numpy array
+                self.original_image = np.array(pil_image.convert('RGB'))
+            except Exception as e:
+                self.status_label.config(text=f"Error: Could not load HEIC image - {e}")
+                return
+        else:
+            # Load image with OpenCV for standard formats
+            self.original_image = cv3.imread(file_path)
+            if self.original_image is None:
+                self.status_label.config(text="Error: Could not load image")
+                return
 
         # Store the original file path for save dialog
         self.original_file_path = file_path

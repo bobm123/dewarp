@@ -35,6 +35,7 @@ An interactive perspective transform tool for correcting image distortion. Selec
 - **Iterative Workflow**: Use transformed result as new original for multi-step corrections
 - **Save Results**: Export transformed images maintaining original file format (JPG/PNG/BMP)
 - **Preferences Dialog**: Configure DPI, units, and crop mode settings
+- **HEIC Support**: Load and process HEIC/HEIF images from iPhone and other Apple devices
 
 ## Installation
 
@@ -56,6 +57,7 @@ pip install -e .
 - **cv3**: Pythonic OpenCV wrapper for basic I/O and drawing operations
 - **numpy**: Numerical operations and array handling
 - **Pillow**: GUI image display
+- **pillow-heif**: HEIC/HEIF image format support
 
 ## Usage
 

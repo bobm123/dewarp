@@ -12,3 +12,6 @@ numpy>=1.24.0
 
 # Pillow for GUI image display
 Pillow>=10.0.0
+
+# pillow-heif for HEIC/HEIF image format support
+pillow-heif>=0.13.0
