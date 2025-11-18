@@ -193,7 +193,7 @@ class ImageCanvas:
 
 
 class DewarpGUI:
-    def __init__(self, root, dpi=300, units="mm", crop=False):
+    def __init__(self, root, dpi=300, units="mm", crop=False, auto_detect=False):
         self.root = root
         self.root.title("Dewarp")
 
@@ -263,6 +263,9 @@ class DewarpGUI:
 
         # Crop mode (from command line or default False = transform entire image)
         self.crop_image = tk.BooleanVar(value=crop)
+
+        # Auto-detect corners on load (from command line or default False)
+        self.auto_detect_on_load = tk.BooleanVar(value=auto_detect)
 
         # Track if user has manually set dimensions
         self.dimensions_manually_set = False
@@ -915,7 +918,7 @@ class DewarpGUI:
 
         # Center the dialog
         dialog_width = 350
-        dialog_height = 250
+        dialog_height = 280
         x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog_width // 2)
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog_height // 2)
         dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
@@ -947,9 +950,17 @@ class DewarpGUI:
         )
         crop_check.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(15, 5))
 
+        # Auto-Detect Corners Setting
+        auto_detect_check = ttk.Checkbutton(
+            content_frame,
+            text="Detect corners when loading",
+            variable=self.auto_detect_on_load
+        )
+        auto_detect_check.grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(5, 5))
+
         # Button frame
         button_frame = ttk.Frame(content_frame)
-        button_frame.grid(row=4, column=0, columnspan=2, pady=(20, 0))
+        button_frame.grid(row=5, column=0, columnspan=2, pady=(20, 0))
 
         def on_ok():
             # Validate DPI value
@@ -1314,6 +1325,10 @@ class DewarpGUI:
         self.display_on_canvas()
         self.display_on_tab_canvas()
         self.status_label.config(text=f"Image loaded (Input DPI: {self.input_dpi}). Click 4 corners (drag to adjust). Drag to pan, scroll to zoom.")
+
+        # Auto-detect corners if preference is enabled
+        if self.auto_detect_on_load.get():
+            self.auto_detect_corners()
 
     def display_on_canvas(self):
         if self.image is None:
@@ -2187,10 +2202,12 @@ def main():
                         help='Measurement units for dimensions (default: mm)')
     parser.add_argument('--crop', action='store_true',
                         help='Enable crop mode (crop to selected points instead of transforming entire image)')
+    parser.add_argument('--auto-detect', action='store_true',
+                        help='Enable automatic corner detection when loading images')
     args = parser.parse_args()
 
     root = tk.Tk()
-    app = DewarpGUI(root, dpi=args.dpi, units=args.units, crop=args.crop)
+    app = DewarpGUI(root, dpi=args.dpi, units=args.units, crop=args.crop, auto_detect=args.auto_detect)
 
     # Load image if provided via command line
     if args.image:

@@ -34,7 +34,7 @@ An interactive perspective transform tool for correcting image distortion. Selec
 - **Image Transformation**: Rotate or flip original or result images
 - **Iterative Workflow**: Use transformed result as new original for multi-step corrections
 - **Save Results**: Export transformed images maintaining original file format (JPG/PNG/BMP)
-- **Preferences Dialog**: Configure DPI, units, and crop mode settings
+- **Preferences Dialog**: Configure DPI, units, crop mode, and auto-detect settings
 - **HEIC Support**: Load and process HEIC/HEIF images from iPhone and other Apple devices
 
 ## Installation
@@ -87,6 +87,8 @@ Options:
   --units <mm|inches|pixels>  Set measurement units (default: mm)
   --crop                  Enable crop mode to crop to selected points
                          (default: transform entire image)
+  --auto-detect           Enable automatic corner detection when loading images
+                         (default: off, can also be enabled in preferences)
 ```
 
 **Examples:**
@@ -100,6 +102,9 @@ python dewarp.py --crop --units pixels image.jpg
 
 # High resolution scan mode
 python dewarp.py --dpi 600 --units mm document.jpg
+
+# Auto-detect corners on load
+python dewarp.py --auto-detect image.jpg
 ```
 
 ### Interactive Workflow
@@ -116,7 +121,10 @@ python dewarp.py --dpi 600 --units mm document.jpg
    - Dialog appears automatically after second point
 
 3. **Select Corners**:
-   - **Auto-Detect**: Click the "Auto" button to automatically detect document corners
+   - **Auto-Detect** (off by default):
+     - Enable via `--auto-detect` flag or in `File -> Preferences`
+     - When enabled, corners are automatically detected on image load
+     - Click the "Auto" button to manually trigger detection at any time
      - Works best with light documents on dark backgrounds or vice versa
      - Handles documents extending beyond image edges
      - Falls back to manual selection if detection fails
@@ -145,6 +153,7 @@ python dewarp.py --dpi 600 --units mm document.jpg
      - DPI (dots per inch)
      - Units (mm, inches, or pixels)
      - Crop mode (on/off)
+     - Auto-detect corners when loading (on/off, default: off)
    - Or right-click on result -> "Crop Mode" to toggle
 
 7. **Apply Transform**:
