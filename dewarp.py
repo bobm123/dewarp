@@ -1981,18 +1981,32 @@ class DewarpGUI:
         if self.transformed_image is None:
             return
 
-        # Determine default extension from original file
+        # Determine default extension and filename from original file
+        import os
         default_ext = ".jpg"
+        initial_file = None
+
         if self.original_file_path:
-            import os
-            _, ext = os.path.splitext(self.original_file_path)
+            directory = os.path.dirname(self.original_file_path)
+            basename = os.path.basename(self.original_file_path)
+            name_without_ext, ext = os.path.splitext(basename)
+
+            # Determine extension (convert HEIC to PNG for output)
             if ext.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
                 default_ext = ext.lower()
                 if default_ext == '.jpeg':
                     default_ext = '.jpg'
+            elif ext.lower() in ['.heic', '.heif']:
+                # HEIC files will be saved as PNG
+                default_ext = '.png'
+
+            # Suggest filename: original_name_dewarp.ext
+            suggested_name = f"{name_without_ext}_dewarp{default_ext}"
+            initial_file = os.path.join(directory, suggested_name)
 
         file_path = filedialog.asksaveasfilename(
             defaultextension=default_ext,
+            initialfile=initial_file if initial_file else None,
             filetypes=[("JPEG", "*.jpg"), ("PNG", "*.png"), ("BMP", "*.bmp"), ("All files", "*.*")]
         )
 
