@@ -5,6 +5,8 @@ Features: Zoom, Pan, Drag-and-Drop points, Millimeter dimensions
 """
 
 import argparse
+import logging
+from datetime import datetime
 import cv2  # For perspective transforms, color conversion, and text rendering
 import cv3  # For basic I/O and drawing operations
 import numpy as np
@@ -214,7 +216,7 @@ class DewarpGUI:
         "A5 Portrait": (148.0, 210.0),
         "A5 Landscape": (210.0, 148.0),
         "Post-it Note (3x3)": (76.2, 76.2),
-        "Post-it Note (3x5)": (76.2, 127.0),
+        "Index Card": (127.0, 76.2),
     }
 
     def get_page_size_display_names(self):
@@ -409,18 +411,18 @@ class DewarpGUI:
         action_overlay = ttk.Frame(self.left_frame, relief=tk.RAISED, borderwidth=1)
         action_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
 
-        ttk.Button(action_overlay, text="Reset", command=self.reset_points, width=6).pack(side=tk.LEFT, padx=1)
-        ttk.Button(action_overlay, text="Auto", command=self.auto_detect_corners, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Button(action_overlay, text="Reset", command=self.reset_points, width=6).pack(side=tk.LEFT, padx=1, pady=3)
+        ttk.Button(action_overlay, text="Auto", command=self.auto_detect_corners, width=6).pack(side=tk.LEFT, padx=1, pady=3)
 
-        # Zoom controls overlay (upper right corner of left canvas)
+        # Zoom controls overlay (bottom center of left canvas)
         zoom_overlay = ttk.Frame(self.left_frame, relief=tk.RAISED, borderwidth=1)
-        zoom_overlay.place(relx=1.0, rely=0.0, x=-5, y=5, anchor=tk.NE)
+        zoom_overlay.place(relx=0.5, rely=1.0, x=0, y=-5, anchor=tk.S)
 
-        ttk.Button(zoom_overlay, text="+", command=self.zoom_in, width=3).pack(side=tk.LEFT, padx=1)
-        ttk.Button(zoom_overlay, text="-", command=self.zoom_out, width=3).pack(side=tk.LEFT, padx=1)
-        ttk.Button(zoom_overlay, text="Fit", command=self.zoom_fit, width=4).pack(side=tk.LEFT, padx=1)
+        ttk.Button(zoom_overlay, text="+", command=self.zoom_in, width=3).pack(side=tk.LEFT, padx=1, pady=3)
+        ttk.Button(zoom_overlay, text="-", command=self.zoom_out, width=3).pack(side=tk.LEFT, padx=1, pady=3)
+        ttk.Button(zoom_overlay, text="Fit", command=self.zoom_fit, width=4).pack(side=tk.LEFT, padx=1, pady=3)
         self.zoom_label = ttk.Label(zoom_overlay, text="100%", width=5)
-        self.zoom_label.pack(side=tk.LEFT, padx=3)
+        self.zoom_label.pack(side=tk.LEFT, padx=3, pady=3)
 
         # Bind events
         self.canvas.bind("<Button-1>", self.on_canvas_click)
@@ -454,44 +456,44 @@ class DewarpGUI:
         self.result_canvas.bind("<Leave>", lambda e: setattr(self, 'focused_canvas', None))
 
         # Dimension controls overlay (upper left corner of right canvas)
-        dimensions_overlay = ttk.Frame(self.right_frame, relief=tk.RAISED, borderwidth=1, padding="5")
+        dimensions_overlay = ttk.Frame(self.right_frame, relief=tk.RAISED, borderwidth=1)
         dimensions_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
 
-        # Zoom controls overlay for result canvas (upper right corner)
+        # Zoom controls overlay for result canvas (bottom center)
         result_zoom_overlay = ttk.Frame(self.right_frame, relief=tk.RAISED, borderwidth=1)
-        result_zoom_overlay.place(relx=1.0, rely=0.0, x=-5, y=5, anchor=tk.NE)
+        result_zoom_overlay.place(relx=0.5, rely=1.0, x=0, y=-5, anchor=tk.S)
 
-        ttk.Button(result_zoom_overlay, text="+", command=self.result_zoom_in, width=3).pack(side=tk.LEFT, padx=1)
-        ttk.Button(result_zoom_overlay, text="-", command=self.result_zoom_out, width=3).pack(side=tk.LEFT, padx=1)
-        ttk.Button(result_zoom_overlay, text="Fit", command=self.result_zoom_fit, width=4).pack(side=tk.LEFT, padx=1)
+        ttk.Button(result_zoom_overlay, text="+", command=self.result_zoom_in, width=3).pack(side=tk.LEFT, padx=1, pady=3)
+        ttk.Button(result_zoom_overlay, text="-", command=self.result_zoom_out, width=3).pack(side=tk.LEFT, padx=1, pady=3)
+        ttk.Button(result_zoom_overlay, text="Fit", command=self.result_zoom_fit, width=4).pack(side=tk.LEFT, padx=1, pady=3)
         self.result_zoom_label = ttk.Label(result_zoom_overlay, text="100%", width=5)
-        self.result_zoom_label.pack(side=tk.LEFT, padx=3)
+        self.result_zoom_label.pack(side=tk.LEFT, padx=3, pady=3)
 
         # Consolidated size selector - all on one line
         self.size_label = ttk.Label(dimensions_overlay, text="Size (mm):", font=('TkDefaultFont', 8))
-        self.size_label.grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
+        self.size_label.grid(row=0, column=0, sticky=tk.E, padx=(3, 3), pady=3)
 
         self.page_size_var = tk.StringVar(value="Custom")
         self.page_size_combo = ttk.Combobox(dimensions_overlay, textvariable=self.page_size_var,
                                              values=self.get_page_size_display_names(),
                                              state='readonly', width=18)
-        self.page_size_combo.grid(row=0, column=1, sticky=tk.W, padx=3)
+        self.page_size_combo.grid(row=0, column=1, sticky=tk.W, padx=2, pady=3)
         self.page_size_combo.bind('<<ComboboxSelected>>', self.on_page_size_changed)
 
         self.width_var = tk.StringVar(value="")  # Empty until points selected
         self.width_var.trace_add('write', self.on_dimension_changed)
-        self.width_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=1, width=8)
-        self.width_spinbox.grid(row=0, column=2, padx=3)
+        self.width_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=0.5, width=8)
+        self.width_spinbox.grid(row=0, column=2, padx=2, pady=3)
 
-        ttk.Label(dimensions_overlay, text="x", font=('TkDefaultFont', 8)).grid(row=0, column=3, padx=2)
+        ttk.Label(dimensions_overlay, text="x", font=('TkDefaultFont', 8)).grid(row=0, column=3, padx=2, pady=3)
 
         self.height_var = tk.StringVar(value="")  # Empty until points selected
         self.height_var.trace_add('write', self.on_dimension_changed)
-        self.height_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8)
-        self.height_spinbox.grid(row=0, column=4, padx=3)
+        self.height_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=0.5, width=8)
+        self.height_spinbox.grid(row=0, column=4, padx=2, pady=3)
 
         self.transform_btn = ttk.Button(dimensions_overlay, text="Apply", command=self.apply_transform, state=tk.DISABLED, width=6)
-        self.transform_btn.grid(row=0, column=5, padx=(5, 0))
+        self.transform_btn.grid(row=0, column=5, padx=(5, 3), pady=3)
 
         # Status Bar at bottom
         status_frame = ttk.Frame(self.root, relief=tk.SUNKEN, padding="2")
@@ -553,39 +555,41 @@ class DewarpGUI:
         # Create overlay controls for tab canvases
         tab_action_overlay = ttk.Frame(self.tab_left_frame, relief=tk.RAISED, borderwidth=1)
         tab_action_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
-        ttk.Button(tab_action_overlay, text="Reset", command=self.reset_points, width=6).pack(side=tk.LEFT, padx=1)
-        ttk.Button(tab_action_overlay, text="Auto", command=self.auto_detect_corners, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Button(tab_action_overlay, text="Reset", command=self.reset_points, width=6).pack(side=tk.LEFT, padx=1, pady=3)
+        ttk.Button(tab_action_overlay, text="Auto", command=self.auto_detect_corners, width=6).pack(side=tk.LEFT, padx=1, pady=3)
 
         tab_zoom_overlay = ttk.Frame(self.tab_left_frame, relief=tk.RAISED, borderwidth=1)
-        tab_zoom_overlay.place(relx=1.0, rely=0.0, x=-5, y=5, anchor=tk.NE)
-        ttk.Button(tab_zoom_overlay, text="+", command=self.zoom_in, width=3).pack(side=tk.LEFT, padx=1)
-        ttk.Button(tab_zoom_overlay, text="-", command=self.zoom_out, width=3).pack(side=tk.LEFT, padx=1)
-        ttk.Button(tab_zoom_overlay, text="Fit", command=self.zoom_fit, width=4).pack(side=tk.LEFT, padx=1)
+        tab_zoom_overlay.place(relx=0.5, rely=1.0, x=0, y=-5, anchor=tk.S)
+        ttk.Button(tab_zoom_overlay, text="+", command=self.zoom_in, width=3).pack(side=tk.LEFT, padx=1, pady=3)
+        ttk.Button(tab_zoom_overlay, text="-", command=self.zoom_out, width=3).pack(side=tk.LEFT, padx=1, pady=3)
+        ttk.Button(tab_zoom_overlay, text="Fit", command=self.zoom_fit, width=4).pack(side=tk.LEFT, padx=1, pady=3)
         self.tab_zoom_label = ttk.Label(tab_zoom_overlay, text="100%", width=5)
-        self.tab_zoom_label.pack(side=tk.LEFT, padx=3)
+        self.tab_zoom_label.pack(side=tk.LEFT, padx=3, pady=3)
 
-        tab_dimensions_overlay = ttk.Frame(self.tab_right_frame, relief=tk.RAISED, borderwidth=1, padding="5")
+        tab_dimensions_overlay = ttk.Frame(self.tab_right_frame, relief=tk.RAISED, borderwidth=1)
         tab_dimensions_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
 
         tab_result_zoom_overlay = ttk.Frame(self.tab_right_frame, relief=tk.RAISED, borderwidth=1)
-        tab_result_zoom_overlay.place(relx=1.0, rely=0.0, x=-5, y=5, anchor=tk.NE)
-        ttk.Button(tab_result_zoom_overlay, text="+", command=self.result_zoom_in, width=3).pack(side=tk.LEFT, padx=1)
-        ttk.Button(tab_result_zoom_overlay, text="-", command=self.result_zoom_out, width=3).pack(side=tk.LEFT, padx=1)
-        ttk.Button(tab_result_zoom_overlay, text="Fit", command=self.result_zoom_fit, width=4).pack(side=tk.LEFT, padx=1)
+        tab_result_zoom_overlay.place(relx=0.5, rely=1.0, x=0, y=-5, anchor=tk.S)
+        ttk.Button(tab_result_zoom_overlay, text="+", command=self.result_zoom_in, width=3).pack(side=tk.LEFT, padx=1, pady=3)
+        ttk.Button(tab_result_zoom_overlay, text="-", command=self.result_zoom_out, width=3).pack(side=tk.LEFT, padx=1, pady=3)
+        ttk.Button(tab_result_zoom_overlay, text="Fit", command=self.result_zoom_fit, width=4).pack(side=tk.LEFT, padx=1, pady=3)
         self.tab_result_zoom_label = ttk.Label(tab_result_zoom_overlay, text="100%", width=5)
-        self.tab_result_zoom_label.pack(side=tk.LEFT, padx=3)
+        self.tab_result_zoom_label.pack(side=tk.LEFT, padx=3, pady=3)
 
         # Share dimension controls between both layouts (consolidated single line)
-        ttk.Label(tab_dimensions_overlay, text="Size (mm):", font=('TkDefaultFont', 8)).grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
+        ttk.Label(tab_dimensions_overlay, text="Size (mm):", font=('TkDefaultFont', 8)).grid(row=0, column=0, sticky=tk.E, padx=(3, 3), pady=3)
         self.tab_page_size_combo = ttk.Combobox(tab_dimensions_overlay, textvariable=self.page_size_var,
                      values=self.get_page_size_display_names(),
                      state='readonly', width=18)
-        self.tab_page_size_combo.grid(row=0, column=1, sticky=tk.W, padx=3)
-        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=1, width=8).grid(row=0, column=2, padx=3)
-        ttk.Label(tab_dimensions_overlay, text="x", font=('TkDefaultFont', 8)).grid(row=0, column=3, padx=2)
-        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8).grid(row=0, column=4, padx=3)
+        self.tab_page_size_combo.grid(row=0, column=1, sticky=tk.W, padx=2, pady=3)
+        self.tab_width_spinbox = ttk.Spinbox(tab_dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=0.5, width=8)
+        self.tab_width_spinbox.grid(row=0, column=2, padx=2, pady=3)
+        ttk.Label(tab_dimensions_overlay, text="x", font=('TkDefaultFont', 8)).grid(row=0, column=3, padx=2, pady=3)
+        self.tab_height_spinbox = ttk.Spinbox(tab_dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=0.5, width=8)
+        self.tab_height_spinbox.grid(row=0, column=4, padx=2, pady=3)
         self.tab_transform_btn = ttk.Button(tab_dimensions_overlay, text="Apply", command=self.apply_transform, state=tk.DISABLED, width=6)
-        self.tab_transform_btn.grid(row=0, column=5, padx=(5, 0))
+        self.tab_transform_btn.grid(row=0, column=5, padx=(5, 3), pady=3)
 
         # Add tabs to notebook
         self.notebook.add(self.tab_left_frame, text="Original")
@@ -645,6 +649,7 @@ class DewarpGUI:
         """Called when width or height field is modified"""
         # Only mark as manually set if we're not programmatically updating
         if not self._updating_dimensions:
+            logging.info(f"Dimensions manually changed: width={self.width_var.get()}, height={self.height_var.get()}")
             self.dimensions_manually_set = True
             # User manually changed dimensions, reset to Custom
             self.page_size_var.set("Custom")
@@ -656,6 +661,7 @@ class DewarpGUI:
         """Called when page size is selected from dropdown"""
         selected_display = self.page_size_var.get()
         selected_key = self.get_page_size_key_from_display(selected_display)
+        logging.info(f"Page size changed to: {selected_key}")
         page_dims = self.PAGE_SIZES_DATA.get(selected_key)
 
         if page_dims is not None:
@@ -709,6 +715,8 @@ class DewarpGUI:
         try:
             new_units = self.units.get()
             old_units = getattr(self, '_previous_units', new_units)
+            if old_units != new_units:
+                logging.info(f"Units changed from {old_units} to {new_units}")
 
             # Convert existing dimension values to new units
             if old_units != new_units and hasattr(self, 'width_var') and hasattr(self, 'height_var'):
@@ -759,13 +767,28 @@ class DewarpGUI:
             # Store current units for next change
             self._previous_units = new_units
 
-            # Update size label
+            # Update size label and spinbox increments
             if new_units == "pixels":
                 self.size_label.config(text="Size (px):")
+                self.width_spinbox.config(increment=1)
+                self.height_spinbox.config(increment=1)
+                if hasattr(self, 'tab_width_spinbox'):
+                    self.tab_width_spinbox.config(increment=1)
+                    self.tab_height_spinbox.config(increment=1)
             elif new_units == "inches":
                 self.size_label.config(text="Size (in):")
+                self.width_spinbox.config(increment=0.1)
+                self.height_spinbox.config(increment=0.1)
+                if hasattr(self, 'tab_width_spinbox'):
+                    self.tab_width_spinbox.config(increment=0.1)
+                    self.tab_height_spinbox.config(increment=0.1)
             else:  # mm
                 self.size_label.config(text="Size (mm):")
+                self.width_spinbox.config(increment=0.5)
+                self.height_spinbox.config(increment=0.5)
+                if hasattr(self, 'tab_width_spinbox'):
+                    self.tab_width_spinbox.config(increment=0.5)
+                    self.tab_height_spinbox.config(increment=0.5)
             # Update page size dropdown to show dimensions in new units
             self.update_page_size_dropdown()
         except (tk.TclError, AttributeError):
@@ -866,6 +889,9 @@ class DewarpGUI:
         """Rotate the original image 90 degrees"""
         if self.image is None:
             return
+
+        direction = "clockwise" if clockwise else "counter-clockwise"
+        logging.info(f"Rotating original image {direction}")
 
         # Rotate the image (clockwise = -90, counter-clockwise = 90)
         rotation_code = cv2.ROTATE_90_CLOCKWISE if clockwise else cv2.ROTATE_90_COUNTERCLOCKWISE
@@ -1472,6 +1498,7 @@ class DewarpGUI:
 
     def load_image_from_path(self, file_path):
         """Load an image from the given file path"""
+        logging.info(f"Loading image: {file_path}")
         # Check if file is HEIC format (needs special handling)
         is_heic = file_path.lower().endswith(('.heic', '.heif'))
 
@@ -1783,6 +1810,7 @@ class DewarpGUI:
 
             # Allow points beyond image boundaries (no clamping)
             self.points.append((x, y))
+            logging.info(f"Point {len(self.points)} added at ({x:.1f}, {y:.1f})")
 
             # Display on both canvases to keep them in sync
             self.display_on_canvas()
@@ -1879,6 +1907,8 @@ class DewarpGUI:
         if self.image is None:
             self.status_label.config(text="Please load an image first")
             return
+
+        logging.info("Auto-detecting corners")
 
         try:
             # Image dimensions
@@ -2224,6 +2254,12 @@ class DewarpGUI:
 
         # Check crop mode
         crop_enabled = self.crop_image.get()
+
+        # Log transform parameters
+        width_val = self.width_var.get()
+        height_val = self.height_var.get()
+        units = self.units.get()
+        logging.info(f"Transform: points={self.points}, width={width_val}, height={height_val}, units={units}, dpi={dpi}, crop={crop_enabled}")
         if not crop_enabled:
             # Transform entire image mode (crop unchecked)
 
@@ -2532,7 +2568,22 @@ def main():
                         help='Enable crop mode (crop to selected points instead of transforming entire image)')
     parser.add_argument('--auto-detect', action='store_true',
                         help='Enable automatic corner detection when loading images')
+    parser.add_argument('--log', action='store_true',
+                        help='Enable logging of user actions to dewarp.log')
     args = parser.parse_args()
+
+    # Setup logging if requested
+    if args.log:
+        log_filename = f'dewarp_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+        logging.basicConfig(
+            filename=log_filename,
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+        logging.info("=== Dewarp session started ===")
+        logging.info(f"Command line args: dpi={args.dpi}, units={args.units}, crop={args.crop}, auto_detect={args.auto_detect}")
+    else:
+        logging.disable(logging.CRITICAL)
 
     root = tk.Tk()
     app = DewarpGUI(root, dpi=args.dpi, units=args.units, crop=args.crop, auto_detect=args.auto_detect)

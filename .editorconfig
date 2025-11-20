@@ -1,0 +1,35 @@
+# EditorConfig helps maintain consistent coding styles
+# https://editorconfig.org
+
+root = true
+
+# Default settings for all files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Python files
+[*.py]
+indent_style = space
+indent_size = 4
+
+# Documentation files - prefer ASCII-safe characters
+[*.md]
+charset = utf-8
+# Note: While charset is UTF-8, prefer ASCII characters in content
+# to avoid display issues in different terminals/editors
+
+[*.txt]
+charset = utf-8
+
+# YAML/TOML configuration files
+[*.{yml,yaml,toml}]
+indent_style = space
+indent_size = 2
+
+# JSON files
+[*.json]
+indent_style = space
+indent_size = 2

@@ -15,7 +15,7 @@ An interactive perspective transform tool for correcting image distortion. Selec
   - Works on original image before transformation
   - Works on result image after transformation
   - Draggable scale endpoints for fine-tuning
-- **Standard Page Sizes**: Quick selection of US Letter, US Legal, A4, A5, and Post-it Note sizes
+- **Standard Page Sizes**: Quick selection of standard sizes (US Letter, US Legal, Tabloid, A4, A5, Post-it Note, Index Card) with Portrait/Landscape orientations
 - **Flexible Units**: Output size in millimeters, inches, or pixels with configurable DPI
 - **Real-time Visual Feedback**: Clean point markers with green connecting lines
 - **Two Transform Modes**:
@@ -25,6 +25,12 @@ An interactive perspective transform tool for correcting image distortion. Selec
   - Side-by-side view on wide screens
   - Automatic tabbed view on narrow screens (iPhone-style)
   - Smooth transitions with hysteresis
+- **Auto-Apply Transform**: Automatically applies perspective correction when:
+  - 4th corner point is placed
+  - Any corner point is dragged
+  - Page size is changed
+  - Width or height dimensions are changed
+  - Image is rotated with auto-detect enabled
 - **Context Menu Options** (Right-click):
   - Set scale by clicking two points
   - Rotate images 90 degrees clockwise or counter-clockwise
@@ -32,6 +38,7 @@ An interactive perspective transform tool for correcting image distortion. Selec
   - Toggle crop mode (result image only)
   - Use result as original for iterative editing
   - Save result
+- **Keyboard Rotation Shortcuts**: Press `R` or `L` to rotate the image under the cursor
 - **Image Transformation**: Rotate or flip original or result images
 - **Iterative Workflow**: Use transformed result as new original for multi-step corrections
 - **Save Results**: Export transformed images maintaining original file format (JPG/PNG/BMP)
@@ -90,6 +97,8 @@ Options:
                          (default: transform entire image)
   --auto-detect           Enable automatic corner detection when loading images
                          (default: off, can also be enabled in preferences)
+  --log                   Enable logging of user actions to dewarp_YYYYMMDD_HHMMSS.log
+                         (default: off, useful for debugging)
 ```
 
 **Examples:**
@@ -106,6 +115,9 @@ python dewarp.py --dpi 600 --units mm document.jpg
 
 # Auto-detect corners on load
 python dewarp.py --auto-detect image.jpg
+
+# Enable logging for debugging
+python dewarp.py --log image.jpg
 ```
 
 ### Interactive Workflow
@@ -143,9 +155,13 @@ python dewarp.py --auto-detect image.jpg
    - **Current Zoom**: Displayed as percentage in upper-right
 
 5. **Set Output Dimensions**:
-   - **Page Size Selector**: Choose from standard sizes (US Letter, US Legal, A4, A5, Post-it Notes)
+   - **Page Size Selector**: Choose from standard sizes
+     - US Letter, US Legal, Tabloid (Portrait/Landscape)
+     - A4, A5 (Portrait/Landscape)
+     - Post-it Note (3x3), Index Card (5x3)
      - Automatically fills width and height fields
      - Values convert to current units (mm/inches/pixels)
+     - Spinbox increments adjust by unit: 1 for pixels, 0.1 for inches, 0.5 for mm
    - **Auto-Calculated**: After selecting 4 points, dimensions calculated from point distances
      - Width = average of top and bottom edge lengths
      - Height = average of left and right edge lengths
@@ -153,6 +169,7 @@ python dewarp.py --auto-detect image.jpg
    - **Manual Entry**: Type custom dimensions directly
      - Manual edits lock dimensions and switch to "Custom" page size
      - If scale was calibrated, dimensions use scale factor instead of DPI
+     - Transform auto-applies when dimensions change
 
 6. **Configure Settings** (Optional):
    - Click `File -> Preferences` to adjust:
@@ -163,7 +180,12 @@ python dewarp.py --auto-detect image.jpg
    - Or right-click on result -> "Crop Mode" to toggle
 
 7. **Apply Transform**:
-   - Click `Apply` button
+   - Transform applies automatically when:
+     - 4th corner point is placed
+     - Any corner point is dragged
+     - Page size is changed
+     - Width/height dimensions are manually adjusted
+   - Click `Apply` button for manual re-application (rarely needed)
    - View result in right pane (or Result tab on narrow screens)
    - Status bar shows output dimensions
 
@@ -174,7 +196,8 @@ python dewarp.py --auto-detect image.jpg
    - Useful for post-transform measurement verification
 
 9. **Refine Result** (Optional):
-   - **Rotate**: Right-click -> "Rotate 90 deg CW/CCW"
+   - **Rotate**: Right-click -> "Rotate 90 deg CW/CCW" or press `R`/`L` keys
+     - With auto-detect enabled, rotating the original automatically re-detects corners
    - **Flip**: Right-click -> "Flip Horizontal" or "Flip Vertical"
    - **Iterate**: Right-click on result -> "Use as Original" to perform additional transforms
    - **Adjust Crop**: Toggle crop mode to change output framing
@@ -321,16 +344,20 @@ Select the 4 rounded corners and apply the transform to verify the output matche
 
 - **Lighting**: Ensure good, even lighting and high contrast
 - **Point Placement**: Place points precisely on corners using zoom
+- **Auto-Apply**: Most actions now auto-apply the transform - use `Apply` button only if needed
 - **Scale Calibration**: Use "Set Scale..." for most accurate measurements when DPI is unknown
 - **Grid Lines**: Use the grid (if visible) to verify straightness
 - **Full Resolution**: Display is scaled but transform uses full resolution
 - **Point Order**: Select in any order - automatic sorting handles it
-- **Manual Dimensions**: Lock dimensions by typing values before applying transform
+- **Manual Dimensions**: Edit width/height spinboxes - transform applies automatically
+- **Spinbox Increments**: Use arrow keys or spinner buttons - increments match units (0.5 mm, 0.1 in, 1 px)
+- **Page Sizes**: Quick access to standard sizes with proper orientations
 - **Iterative Editing**: Use "Use as Original" to apply multiple transforms sequentially
-- **Rotation & Flipping**: Rotate or flip images before or after transform as needed
+- **Rotation Shortcuts**: Press `R` or `L` to quickly rotate the image under your cursor
+- **Auto-Detect + Rotate**: Enable auto-detect, then rotate - corners are re-detected automatically
 - **Responsive View**: Resize window to switch between side-by-side and tabbed layouts
 - **Context Menu**: Right-click on either image for quick access to tools
-- **Pre-processing**: Use flip/rotate on original to correct orientation before selecting points
+- **Logging**: Use `--log` flag to debug issues by capturing all user actions
 
 ## How It Works
 
