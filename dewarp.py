@@ -2119,11 +2119,43 @@ class DewarpGUI:
         )
 
         if file_path:
-            # Get output DPI
+            # Get output DPI - if scale calibration is active, calculate actual DPI
             try:
                 dpi = int(self.dpi_var.get())
             except ValueError:
                 dpi = 300
+
+            # If scale was calibrated, calculate the actual DPI to write to file
+            if self.scale_calibrator.is_calibrated():
+                # Get actual image dimensions in pixels
+                h, w = self.transformed_image.shape[:2]
+
+                # Get the dimensions we displayed to user
+                try:
+                    width_value = float(self.width_var.get())
+                    height_value = float(self.height_var.get())
+                    current_units = self.units.get()
+
+                    # Convert dimensions to inches for DPI calculation
+                    if current_units == "inches":
+                        width_inches = width_value
+                        height_inches = height_value
+                    elif current_units == "mm":
+                        width_inches = width_value / 25.4
+                        height_inches = height_value / 25.4
+                    elif current_units == "pixels":
+                        # If units are pixels, don't override DPI
+                        width_inches = None
+                        height_inches = None
+
+                    if width_inches and height_inches:
+                        # Calculate actual DPI from pixels and inches
+                        # Use average of width and height DPI
+                        dpi_w = w / width_inches
+                        dpi_h = h / height_inches
+                        dpi = int((dpi_w + dpi_h) / 2)
+                except (ValueError, ZeroDivisionError):
+                    pass  # Fall back to default DPI
 
             # Convert numpy array (RGB) to PIL Image
             pil_image = Image.fromarray(self.transformed_image)
