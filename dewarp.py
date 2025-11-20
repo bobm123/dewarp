@@ -15,188 +15,11 @@ from tkinter import filedialog, ttk  # Convenience imports for dialogs and theme
 from PIL import Image, ImageTk
 from pillow_heif import register_heif_opener  # For HEIC file support
 
+# Import our modules
+from lib import UnitConverter, ImageCanvas, CornerDetector, ScaleCalibrator
+
 # Register HEIF opener with Pillow to enable HEIC support
 register_heif_opener()
-
-
-class ImageCanvas:
-    """Helper class to manage zoom, pan, and display for a canvas"""
-    def __init__(self, canvas, canvas_width, canvas_height):
-        self.canvas = canvas
-        self.canvas_width = canvas_width
-        self.canvas_height = canvas_height
-
-        # Zoom and pan state
-        self.zoom_level = 1.0
-        self.pan_offset = [0.0, 0.0]
-        self.base_scale_factor = 1.0
-        self.needs_initial_center = False
-
-        # Drag state for panning
-        self.panning = False
-        self.drag_start = None
-
-        # PhotoImage reference (must keep reference to prevent garbage collection)
-        self.photo = None
-
-    def update_canvas_size(self, width, height):
-        """Update canvas dimensions"""
-        self.canvas_width = width
-        self.canvas_height = height
-
-    def reset_view(self):
-        """Reset zoom and pan to initial state"""
-        self.zoom_level = 1.0
-        self.pan_offset = [0.0, 0.0]
-        self.needs_initial_center = True
-
-    def zoom_in(self, center_x=None, center_y=None):
-        """Zoom in by 20%, centered on given point"""
-        if center_x is None:
-            center_x = self.canvas_width / 2
-        if center_y is None:
-            center_y = self.canvas_height / 2
-
-        old_zoom = self.zoom_level
-        self.zoom_level = min(self.zoom_level * 1.2, 10.0)
-
-        # Adjust pan to keep the cursor position fixed
-        zoom_ratio = self.zoom_level / old_zoom
-        self.pan_offset[0] = center_x - (center_x - self.pan_offset[0]) * zoom_ratio
-        self.pan_offset[1] = center_y - (center_y - self.pan_offset[1]) * zoom_ratio
-
-    def zoom_out(self, center_x=None, center_y=None):
-        """Zoom out by 20%, centered on given point"""
-        if center_x is None:
-            center_x = self.canvas_width / 2
-        if center_y is None:
-            center_y = self.canvas_height / 2
-
-        old_zoom = self.zoom_level
-        self.zoom_level = max(self.zoom_level / 1.2, 0.1)
-
-        # Adjust pan to keep the cursor position fixed
-        zoom_ratio = self.zoom_level / old_zoom
-        self.pan_offset[0] = center_x - (center_x - self.pan_offset[0]) * zoom_ratio
-        self.pan_offset[1] = center_y - (center_y - self.pan_offset[1]) * zoom_ratio
-
-    def zoom_fit(self):
-        """Reset zoom to fit image in canvas"""
-        self.zoom_level = 1.0
-        self.pan_offset = [0.0, 0.0]
-        self.needs_initial_center = True
-
-    def get_zoom_percentage(self):
-        """Get current zoom level as percentage"""
-        return int(self.zoom_level * self.base_scale_factor * 100)
-
-    def clear(self):
-        """Clear the canvas"""
-        self.canvas.delete("all")
-        self.photo = None
-
-    def canvas_to_image_coords(self, canvas_x, canvas_y):
-        """Convert canvas coordinates to image coordinates"""
-        effective_scale = self.base_scale_factor * self.zoom_level
-        img_x = (canvas_x - self.pan_offset[0]) / effective_scale
-        img_y = (canvas_y - self.pan_offset[1]) / effective_scale
-        return img_x, img_y
-
-    def image_to_canvas_coords(self, img_x, img_y):
-        """Convert image coordinates to canvas coordinates"""
-        effective_scale = self.base_scale_factor * self.zoom_level
-        canvas_x = img_x * effective_scale + self.pan_offset[0]
-        canvas_y = img_y * effective_scale + self.pan_offset[1]
-        return canvas_x, canvas_y
-
-    def display_image(self, image_rgb, overlay_callback=None):
-        """
-        Display an image on the canvas with current zoom/pan settings
-
-        Args:
-            image_rgb: numpy array in RGB format
-            overlay_callback: optional function(canvas_image, effective_scale, pan_offset)
-                            to draw overlays on the canvas image
-        """
-        if image_rgb is None:
-            return
-
-        height, width = image_rgb.shape[:2]
-
-        # Calculate base scale to fit canvas (with small margin)
-        scale_w = self.canvas_width / width
-        scale_h = self.canvas_height / height
-        self.base_scale_factor = min(scale_w, scale_h) * 0.98  # 98% to ensure it fits
-
-        # Apply zoom
-        effective_scale = self.base_scale_factor * self.zoom_level
-
-        new_width = int(width * effective_scale)
-        new_height = int(height * effective_scale)
-
-        # Resize for display
-        display_image = cv3.resize(image_rgb, new_width, new_height)
-
-        # Create canvas-sized image with background
-        canvas_image = np.full((self.canvas_height, self.canvas_width, 3), 64, dtype=np.uint8)
-
-        # Center the image on initial load or fit
-        if self.needs_initial_center:
-            center_x = (self.canvas_width - new_width) / 2.0
-            center_y = (self.canvas_height - new_height) / 2.0
-            self.pan_offset = [center_x, center_y]
-            self.needs_initial_center = False
-
-        # Calculate positions for placing the image on canvas
-        x_offset = int(max(0, self.pan_offset[0]))
-        y_offset = int(max(0, self.pan_offset[1]))
-
-        # Calculate which part of the display image to show
-        img_x_start = int(max(0, -self.pan_offset[0]))
-        img_y_start = int(max(0, -self.pan_offset[1]))
-
-        # Calculate how much of the image can fit on canvas
-        img_x_end = int(min(new_width, img_x_start + self.canvas_width - x_offset))
-        img_y_end = int(min(new_height, img_y_start + self.canvas_height - y_offset))
-
-        # Place the visible portion of the image on canvas
-        if img_y_end > img_y_start and img_x_end > img_x_start:
-            visible_portion = display_image[img_y_start:img_y_end, img_x_start:img_x_end]
-            h, w = visible_portion.shape[:2]
-            canvas_image[y_offset:y_offset+h, x_offset:x_offset+w] = visible_portion
-
-        # Call overlay callback if provided
-        if overlay_callback:
-            overlay_callback(canvas_image, effective_scale, self.pan_offset)
-
-        # Convert to PhotoImage
-        img_pil = Image.fromarray(canvas_image)
-        self.photo = ImageTk.PhotoImage(image=img_pil)
-
-        # Update canvas
-        self.canvas.delete("all")
-        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.photo)
-
-    def start_pan(self, x, y):
-        """Start panning operation"""
-        self.panning = True
-        self.drag_start = (x, y)
-
-    def update_pan(self, x, y):
-        """Update pan offset during drag"""
-        if self.panning and self.drag_start:
-            dx = x - self.drag_start[0]
-            dy = y - self.drag_start[1]
-            self.pan_offset[0] += dx
-            self.pan_offset[1] += dy
-            self.drag_start = (x, y)
-            return True
-        return False
-
-    def end_pan(self):
-        """End panning operation"""
-        self.panning = False
-        self.drag_start = None
 
 
 class DewarpGUI:
@@ -292,12 +115,15 @@ class DewarpGUI:
         self.dragging_point = None
         self.drag_start = None
 
-        # Scale calibration state
-        self.scale_mode = None  # None, "original", or "result"
-        self.scale_points = []  # Two points defining the scale line
-        self.scale_length = None  # Real-world length in current units
-        self.scale_factor = 1.0  # Pixels per unit
+        # Scale calibration
+        self.scale_calibrator = ScaleCalibrator()
         self.dragging_scale_point = None  # Index of scale point being dragged
+
+        # Unit converter (manages conversions between pixels, mm, inches)
+        self.unit_converter = UnitConverter(units=units, dpi=dpi, scale_factor=1.0)
+
+        # Corner detector (automatic document corner detection)
+        self.corner_detector = CornerDetector()
 
         # Layout mode tracking
         self.layout_mode = "side-by-side"  # or "tabbed"
@@ -352,6 +178,23 @@ class DewarpGUI:
         self.context_menu.add_command(label="Flip Vertical", command=self.context_menu_flip_vertical)
         self.context_menu.add_separator()
         self.context_menu.add_checkbutton(label="Crop Mode", variable=self.crop_image, command=self.on_crop_mode_changed)
+
+    # Property accessors for backward compatibility with scale calibrator
+    @property
+    def scale_mode(self):
+        return self.scale_calibrator.get_mode()
+
+    @property
+    def scale_points(self):
+        return self.scale_calibrator.get_points()
+
+    @property
+    def scale_length(self):
+        return self.scale_calibrator.get_scale_length()
+
+    @property
+    def scale_factor(self):
+        return self.scale_calibrator.get_scale_factor()
 
     def setup_ui(self):
         # Calculate canvas dimensions based on screen size
@@ -614,14 +457,9 @@ class DewarpGUI:
         except ValueError:
             dpi = 300
 
-        units = self.units.get()
-
-        if units == "pixels":
-            return int(value)
-        elif units == "inches":
-            return int(value * dpi)
-        else:  # mm
-            return int((value / 25.4) * dpi)
+        self.unit_converter.set_dpi(dpi)
+        self.unit_converter.set_units(self.units.get())
+        return self.unit_converter.units_to_pixels(value)
 
     def pixels_to_units(self, pixels, dpi=None):
         """Convert pixels to current units based on DPI
@@ -636,14 +474,9 @@ class DewarpGUI:
             except ValueError:
                 dpi = 300
 
-        units = self.units.get()
-
-        if units == "pixels":
-            return pixels
-        elif units == "inches":
-            return pixels / dpi
-        else:  # mm
-            return (pixels / dpi) * 25.4
+        self.unit_converter.set_dpi(dpi)
+        self.unit_converter.set_units(self.units.get())
+        return self.unit_converter.pixels_to_units(pixels)
 
     def on_dimension_changed(self, *args):
         """Called when width or height field is modified"""
@@ -729,27 +562,9 @@ class DewarpGUI:
                         height_val = float(height_str)
                         dpi = int(self.dpi_var.get()) if hasattr(self, 'dpi_var') else 300
 
-                        # Convert old units to mm first
-                        if old_units == "mm":
-                            width_mm = width_val
-                            height_mm = height_val
-                        elif old_units == "inches":
-                            width_mm = width_val * 25.4
-                            height_mm = height_val * 25.4
-                        elif old_units == "pixels":
-                            width_mm = (width_val / dpi) * 25.4
-                            height_mm = (height_val / dpi) * 25.4
-
-                        # Convert mm to new units
-                        if new_units == "mm":
-                            new_width = width_mm
-                            new_height = height_mm
-                        elif new_units == "inches":
-                            new_width = width_mm / 25.4
-                            new_height = height_mm / 25.4
-                        elif new_units == "pixels":
-                            new_width = (width_mm / 25.4) * dpi
-                            new_height = (height_mm / 25.4) * dpi
+                        # Use converter to convert from old units to new units
+                        new_width = self.unit_converter.convert_units(width_val, old_units, new_units, dpi)
+                        new_height = self.unit_converter.convert_units(height_val, old_units, new_units, dpi)
 
                         # Update the dimension fields
                         self._updating_dimensions = True
@@ -767,28 +582,16 @@ class DewarpGUI:
             # Store current units for next change
             self._previous_units = new_units
 
-            # Update size label and spinbox increments
-            if new_units == "pixels":
-                self.size_label.config(text="Size (px):")
-                self.width_spinbox.config(increment=1)
-                self.height_spinbox.config(increment=1)
-                if hasattr(self, 'tab_width_spinbox'):
-                    self.tab_width_spinbox.config(increment=1)
-                    self.tab_height_spinbox.config(increment=1)
-            elif new_units == "inches":
-                self.size_label.config(text="Size (in):")
-                self.width_spinbox.config(increment=0.1)
-                self.height_spinbox.config(increment=0.1)
-                if hasattr(self, 'tab_width_spinbox'):
-                    self.tab_width_spinbox.config(increment=0.1)
-                    self.tab_height_spinbox.config(increment=0.1)
-            else:  # mm
-                self.size_label.config(text="Size (mm):")
-                self.width_spinbox.config(increment=0.5)
-                self.height_spinbox.config(increment=0.5)
-                if hasattr(self, 'tab_width_spinbox'):
-                    self.tab_width_spinbox.config(increment=0.5)
-                    self.tab_height_spinbox.config(increment=0.5)
+            # Update size label and spinbox increments using converter
+            label = self.unit_converter.get_unit_label(new_units)
+            increment = self.unit_converter.get_spinbox_increment(new_units)
+
+            self.size_label.config(text=f"Size ({label}):")
+            self.width_spinbox.config(increment=increment)
+            self.height_spinbox.config(increment=increment)
+            if hasattr(self, 'tab_width_spinbox'):
+                self.tab_width_spinbox.config(increment=increment)
+                self.tab_height_spinbox.config(increment=increment)
             # Update page size dropdown to show dimensions in new units
             self.update_page_size_dropdown()
         except (tk.TclError, AttributeError):
@@ -1009,9 +812,8 @@ class DewarpGUI:
         if self.image is None:
             return
 
-        self.scale_mode = "original"
-        self.scale_points = []
-        self.status_label.config(text="Scale calibration: Click two points on a known distance")
+        self.scale_calibrator.start_calibration("original")
+        self.status_label.config(text=self.scale_calibrator.get_status_message())
 
         # Change cursor
         if self.layout_mode == "side-by-side":
@@ -1024,9 +826,8 @@ class DewarpGUI:
         if self.transformed_image is None:
             return
 
-        self.scale_mode = "result"
-        self.scale_points = []
-        self.status_label.config(text="Scale calibration: Click two points on a known distance")
+        self.scale_calibrator.start_calibration("result")
+        self.status_label.config(text=self.scale_calibrator.get_status_message())
 
         # Change cursor
         if self.layout_mode == "side-by-side":
@@ -1036,8 +837,7 @@ class DewarpGUI:
 
     def cancel_scale_calibration(self):
         """Cancel scale calibration mode"""
-        self.scale_mode = None
-        self.scale_points = []
+        self.scale_calibrator.cancel()
 
         # Reset cursors
         if self.layout_mode == "side-by-side":
@@ -1055,12 +855,11 @@ class DewarpGUI:
 
     def finish_scale_calibration(self):
         """Show dialog to enter the real-world length"""
-        if len(self.scale_points) != 2:
+        if self.scale_calibrator.get_point_count() != 2:
             return
 
         # Calculate pixel distance
-        pt1, pt2 = self.scale_points
-        pixel_distance = np.sqrt((pt2[0] - pt1[0])**2 + (pt2[1] - pt1[1])**2)
+        pixel_distance = self.scale_calibrator.calculate_pixel_distance()
 
         # Create dialog
         dialog = tk.Toplevel(self.root)
@@ -1104,12 +903,11 @@ class DewarpGUI:
         def on_ok():
             try:
                 real_length = float(length_var.get())
-                if real_length <= 0:
-                    raise ValueError("Length must be positive")
+                # Use calibrator to set scale (validates length > 0)
+                scale_factor = self.scale_calibrator.set_real_world_length(real_length)
 
-                # Calculate scale factor (pixels per unit)
-                self.scale_factor = pixel_distance / real_length
-                self.scale_length = real_length
+                # Update unit converter with new scale factor
+                self.unit_converter.set_scale_factor(scale_factor)
 
                 # If we have 4 points already, recalculate dimensions
                 if len(self.points) == 4:
@@ -1120,8 +918,8 @@ class DewarpGUI:
 
                 self.status_label.config(text=f"Scale set: {pixel_distance:.1f} pixels = {real_length:.1f} {units_text}")
 
-            except ValueError:
-                self.status_label.config(text="Error: Invalid length entered")
+            except ValueError as e:
+                self.status_label.config(text=f"Error: {str(e)}")
                 dialog.destroy()
                 self.cancel_scale_calibration()
 
@@ -1908,217 +1706,48 @@ class DewarpGUI:
             self.status_label.config(text="Please load an image first")
             return
 
-        logging.info("Auto-detecting corners")
+        # Use CornerDetector to find corners
+        detected_points = self.corner_detector.detect(self.image)
 
-        try:
-            # Image dimensions
-            h, w = self.image.shape[:2]
-            image_area = h * w
+        if detected_points is not None:
+            # Set the detected points
+            self.points = detected_points
 
-            # Convert RGB to grayscale
-            gray = cv2.cvtColor(self.image, cv2.COLOR_RGB2GRAY)
+            # Update display
+            self.display_on_canvas()
+            self.display_on_tab_canvas()
 
-            # Apply Gaussian blur to reduce noise
-            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+            # Calculate dimensions and enable transform
+            self.calculate_output_dimensions()
+            self.transform_btn.config(state=tk.NORMAL)
+            self.tab_transform_btn.config(state=tk.NORMAL)
 
-            # Apply Canny edge detection with improved adaptive thresholds
-            # Use median-based thresholds, but with better handling for light/dark documents
-            median = np.median(blurred)
+            # Auto-apply transform after auto-detection
+            self.apply_transform()
+            self.status_label.config(text="Auto-detected 4 corners and applied transform. Adjust points if needed.")
 
-            # For dark backgrounds (median < 100), use fixed thresholds that work better
-            # For light backgrounds, use adaptive thresholds
-            if median < 100:
-                # Dark background (like book on table) - use higher fixed thresholds
-                lower = 50
-                upper = 150
-            else:
-                # Light background - use adaptive thresholds
-                lower = int(max(0, 0.66 * median))
-                upper = int(min(255, 1.33 * median))
+            # Show debug window if enabled
+            if show_debug:
+                self._show_detection_debug()
+        else:
+            self.status_label.config(text="Could not detect document corners. Try manual selection.")
 
-            edges = cv2.Canny(blurred, lower, upper, apertureSize=3)
+            # Show debug window to help diagnose
+            if show_debug:
+                self._show_detection_debug()
 
-            # Dilate edges slightly to close small gaps
-            kernel = np.ones((3, 3), np.uint8)
-            edges = cv2.dilate(edges, kernel, iterations=1)
-
-            # Find contours
-            contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-
-            # If very few edge pixels, try with more aggressive edge detection
-            edge_pixel_ratio = np.count_nonzero(edges) / image_area
-            if edge_pixel_ratio < 0.05 and len(contours) < 10:
-                # Try again with different parameters
-                edges2 = cv2.Canny(blurred, 30, 100, apertureSize=5)
-                edges2 = cv2.dilate(edges2, kernel, iterations=2)
-                contours2, _ = cv2.findContours(edges2, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-                if len(contours2) > len(contours):
-                    contours = contours2
-                    edges = edges2
-
-            # Sort contours by area (largest first)
-            contours = sorted(contours, key=cv2.contourArea, reverse=True)
-
-            # Find the largest quadrilateral contour
-            # Simple approach: find biggest 4-sided shape that isn't the image boundary
-            document_contour = None
-            border_threshold = min(h, w) * 0.02  # 2% of smaller dimension
-
-            for contour in contours[:20]:  # Check top 20 largest contours
-                peri = cv2.arcLength(contour, True)
-
-                # Try different epsilon values to get 4 vertices
-                for epsilon_factor in [0.02, 0.03, 0.04, 0.05]:
-                    approx = cv2.approxPolyDP(contour, epsilon_factor * peri, True)
-
-                    if len(approx) == 4:
-                        area = cv2.contourArea(approx)
-
-                        # Must be substantial (>5%) but not the whole image (<95%)
-                        if 0.05 * image_area < area < 0.95 * image_area:
-                            # Check if this is just the image boundary
-                            corners = approx.reshape(-1, 2)
-                            corners_at_boundary = 0
-
-                            for x, y in corners:
-                                # A corner is "at boundary" if it's very close to an edge
-                                at_left = x < border_threshold
-                                at_right = x > (w - border_threshold)
-                                at_top = y < border_threshold
-                                at_bottom = y > (h - border_threshold)
-
-                                # Must be near a corner (two edges), not just one edge
-                                if (at_left or at_right) and (at_top or at_bottom):
-                                    corners_at_boundary += 1
-
-                            # Skip if all 4 corners are at image corners (it's the boundary)
-                            if corners_at_boundary >= 4:
-                                continue
-
-                            document_contour = approx
-                            break
-
-                if document_contour is not None:
-                    break
-
-            # If no 4-sided contour found, try to detect document touching edges
-            if document_contour is None:
-                # Look for largest contour that might be partially off-screen
-                for contour in contours[:10]:
-                    area = cv2.contourArea(contour)
-                    if area > 0.20 * image_area:  # Must be substantial
-                        peri = cv2.arcLength(contour, True)
-                        approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
-
-                        # Accept contours with 3-6 vertices (partial documents)
-                        if 3 <= len(approx) <= 6:
-                            # Check if any points are near image boundaries
-                            points = approx.reshape(-1, 2)
-                            near_boundary = False
-                            margin = 5  # pixels
-
-                            for pt in points:
-                                x, y = pt
-                                if (x < margin or x > w - margin or
-                                    y < margin or y > h - margin):
-                                    near_boundary = True
-                                    break
-
-                            if near_boundary:
-                                # Supplement with corner points if needed
-                                corner_points = self._supplement_with_corners(approx, w, h)
-                                if len(corner_points) == 4:
-                                    document_contour = corner_points
-                                    break
-
-            if document_contour is not None:
-                # Extract corner points
-                if len(document_contour) == 4:
-                    corners = document_contour.reshape(4, 2).astype(float)
-                else:
-                    corners = document_contour
-
-                # Convert to list of tuples (matching self.points format)
-                self.points = [(float(x), float(y)) for x, y in corners]
-
-                # Order points properly
-                ordered = self.order_points(self.points)
-                self.points = [(float(x), float(y)) for x, y in ordered]
-
-                # Update display
-                self.display_on_canvas()
-                self.display_on_tab_canvas()
-
-                # Calculate dimensions and enable transform
-                self.calculate_output_dimensions()
-                self.transform_btn.config(state=tk.NORMAL)
-                self.tab_transform_btn.config(state=tk.NORMAL)
-
-                # Auto-apply transform after auto-detection
-                self.apply_transform()
-                self.status_label.config(text="Auto-detected 4 corners and applied transform. Adjust points if needed.")
-
-                # Show debug window if enabled
-                if show_debug:
-                    self._show_detection_debug(edges, contours, document_contour, median, lower, upper, h, w)
-            else:
-                self.status_label.config(text="Could not detect document corners. Try manual selection.")
-
-                # Show debug window to help diagnose
-                if show_debug:
-                    self._show_detection_debug(edges, contours, None, median, lower, upper, h, w)
-
-        except Exception as e:
-            self.status_label.config(text=f"Auto-detection failed: {str(e)}")
-
-    def _show_detection_debug(self, edges, contours, detected_contour, median, lower, upper, h, w):
+    def _show_detection_debug(self):
         """Show debug window with edge detection and contour analysis"""
-        # Create debug visualization
-        # Left side: edges, Right side: original with top contours
+        if self.image is None:
+            return
 
-        # Convert edges to RGB for display
-        edges_rgb = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
-
-        # Create contour visualization on original image
-        contour_vis = self.image.copy()
-
-        # Draw top 5 contours in different colors
-        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255)]
-        for i, contour in enumerate(contours[:5]):
-            cv2.drawContours(contour_vis, [contour], 0, colors[i], 2)
-            # Label with contour number and area
-            area = cv2.contourArea(contour)
-            M = cv2.moments(contour)
-            if M["m00"] > 0:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                pct = 100 * area / (h * w)
-                cv2.putText(contour_vis, f"#{i+1} {pct:.0f}%", (cx-30, cy),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, colors[i], 2)
-
-        # If detected, highlight it in thick green
-        if detected_contour is not None:
-            cv2.drawContours(contour_vis, [detected_contour], 0, (0, 255, 0), 4)
-
-        # Scale images to fit in debug window
-        max_debug_size = 400
-        scale = min(max_debug_size / h, max_debug_size / w)
-        new_h, new_w = int(h * scale), int(w * scale)
-
-        edges_small = cv2.resize(edges_rgb, (new_w, new_h))
-        contour_small = cv2.resize(contour_vis, (new_w, new_h))
-
-        # Combine side by side
-        combined = np.hstack([edges_small, contour_small])
-
-        # Add info text
-        info_text = f"Median: {median:.0f} | Canny: {lower}-{upper} | Contours: {len(contours)}"
-        cv2.putText(combined, info_text, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        # Use CornerDetector to create debug visualization
+        combined, info_dict = self.corner_detector.create_debug_visualization(self.image)
 
         # Create popup window
         debug_window = tk.Toplevel(self.root)
         debug_window.title("Corner Detection Debug")
-        debug_window.geometry(f"{new_w*2 + 20}x{new_h + 60}")
+        debug_window.geometry(f"{info_dict['width'] + 20}x{info_dict['height'] + 60}")
 
         # Convert to PIL and display
         pil_debug = Image.fromarray(combined)
@@ -2132,63 +1761,9 @@ class DewarpGUI:
         close_btn = tk.Button(debug_window, text="Close", command=debug_window.destroy)
         close_btn.pack(pady=5)
 
-    def _supplement_with_corners(self, contour, width, height):
-        """Supplement partial contour with image corner points"""
-        points = contour.reshape(-1, 2)
-        margin = 10
-
-        # Determine which corners are missing
-        corners_present = {
-            'tl': False, 'tr': False, 'bl': False, 'br': False
-        }
-
-        for pt in points:
-            x, y = pt
-            if x < margin and y < margin:
-                corners_present['tl'] = True
-            elif x > width - margin and y < margin:
-                corners_present['tr'] = True
-            elif x < margin and y > height - margin:
-                corners_present['bl'] = True
-            elif x > width - margin and y > height - margin:
-                corners_present['br'] = True
-
-        # Add missing corners
-        result_points = list(points)
-
-        if not corners_present['tl']:
-            result_points.append([0, 0])
-        if not corners_present['tr']:
-            result_points.append([width - 1, 0])
-        if not corners_present['bl']:
-            result_points.append([0, height - 1])
-        if not corners_present['br']:
-            result_points.append([width - 1, height - 1])
-
-        # If we have exactly 4 points now, return them
-        if len(result_points) == 4:
-            return np.array(result_points).reshape(4, 1, 2).astype(np.int32)
-
-        return None
-
     def order_points(self, pts):
         """Order points as: top-left, top-right, bottom-right, bottom-left"""
-        pts = np.array(pts, dtype="float32")
-
-        # Sort by y-coordinate (top to bottom)
-        sorted_by_y = pts[np.argsort(pts[:, 1])]
-
-        # Top two points
-        top_pts = sorted_by_y[:2]
-        top_pts = top_pts[np.argsort(top_pts[:, 0])]  # Sort by x
-        tl, tr = top_pts
-
-        # Bottom two points
-        bottom_pts = sorted_by_y[2:]
-        bottom_pts = bottom_pts[np.argsort(bottom_pts[:, 0])]  # Sort by x
-        bl, br = bottom_pts
-
-        return np.array([tl, tr, br, bl], dtype="float32")
+        return self.corner_detector.order_points(pts)
 
     def calculate_output_dimensions(self):
         """Calculate output dimensions based on the distances between selected points"""
