@@ -199,16 +199,53 @@ class ImageCanvas:
 
 class DewarpGUI:
     # Standard page sizes in mm (width x height)
-    PAGE_SIZES = {
+    # Page sizes stored as (width_mm, height_mm) in portrait orientation
+    # The display name will be generated dynamically with current units
+    PAGE_SIZES_DATA = {
         "Custom": None,
-        "US Letter": (215.9, 279.4),
-        "US Legal": (215.9, 355.6),
-        "Tabloid": (431.8, 279.4),
-        "A4": (210.0, 297.0),
-        "A5": (148.0, 210.0),
+        "US Letter Portrait": (215.9, 279.4),
+        "US Letter Landscape": (279.4, 215.9),
+        "US Legal Portrait": (215.9, 355.6),
+        "US Legal Landscape": (355.6, 215.9),
+        "Tabloid Portrait": (279.4, 431.8),
+        "Tabloid Landscape": (431.8, 279.4),
+        "A4 Portrait": (210.0, 297.0),
+        "A4 Landscape": (297.0, 210.0),
+        "A5 Portrait": (148.0, 210.0),
+        "A5 Landscape": (210.0, 148.0),
         "Post-it Note (3x3)": (76.2, 76.2),
         "Post-it Note (3x5)": (76.2, 127.0),
     }
+
+    def get_page_size_display_names(self):
+        """Generate display names for page sizes (without dimensions)"""
+        display_names = []
+        for name in self.PAGE_SIZES_DATA.keys():
+            if name == "Custom":
+                display_names.append("Custom")
+            else:
+                display_names.append(name)
+        return display_names
+
+    def get_page_size_key_from_display(self, display_name):
+        """Extract the page size key from a display name"""
+        # Display name is now the same as the key
+        return display_name if display_name in self.PAGE_SIZES_DATA else "Custom"
+
+    def update_page_size_dropdown(self):
+        """Update the page size dropdown values"""
+        display_names = self.get_page_size_display_names()
+
+        # Update combobox values for both layouts
+        if hasattr(self, 'page_size_combo'):
+            self.page_size_combo['values'] = display_names
+        if hasattr(self, 'tab_page_size_combo'):
+            self.tab_page_size_combo['values'] = display_names
+
+        # Keep current selection (display name is same as key now)
+        current = self.page_size_var.get()
+        if current not in display_names:
+            self.page_size_var.set("Custom")
 
     def __init__(self, root, dpi=300, units="mm", crop=False, auto_detect=False):
         self.root = root
@@ -276,6 +313,7 @@ class DewarpGUI:
 
         # Units preference (from command line or default mm)
         self.units = tk.StringVar(value=units)
+        self._previous_units = units  # Track previous units for conversion
         self.units.trace_add('write', self.on_units_changed)
 
         # Crop mode (from command line or default False = transform entire image)
@@ -373,8 +411,6 @@ class DewarpGUI:
 
         ttk.Button(action_overlay, text="Reset", command=self.reset_points, width=6).pack(side=tk.LEFT, padx=1)
         ttk.Button(action_overlay, text="Auto", command=self.auto_detect_corners, width=6).pack(side=tk.LEFT, padx=1)
-        self.transform_btn = ttk.Button(action_overlay, text="Apply", command=self.apply_transform, state=tk.DISABLED, width=6)
-        self.transform_btn.pack(side=tk.LEFT, padx=1)
 
         # Zoom controls overlay (upper right corner of left canvas)
         zoom_overlay = ttk.Frame(self.left_frame, relief=tk.RAISED, borderwidth=1)
@@ -431,28 +467,31 @@ class DewarpGUI:
         self.result_zoom_label = ttk.Label(result_zoom_overlay, text="100%", width=5)
         self.result_zoom_label.pack(side=tk.LEFT, padx=3)
 
-        # Page size selector
-        ttk.Label(dimensions_overlay, text="Page Size:", font=('TkDefaultFont', 8)).grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
+        # Consolidated size selector - all on one line
+        self.size_label = ttk.Label(dimensions_overlay, text="Size (mm):", font=('TkDefaultFont', 8))
+        self.size_label.grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
+
         self.page_size_var = tk.StringVar(value="Custom")
         self.page_size_combo = ttk.Combobox(dimensions_overlay, textvariable=self.page_size_var,
-                                             values=list(self.PAGE_SIZES.keys()),
+                                             values=self.get_page_size_display_names(),
                                              state='readonly', width=18)
-        self.page_size_combo.grid(row=0, column=1, columnspan=3, sticky=tk.W, padx=3, pady=(0, 5))
+        self.page_size_combo.grid(row=0, column=1, sticky=tk.W, padx=3)
         self.page_size_combo.bind('<<ComboboxSelected>>', self.on_page_size_changed)
 
-        self.width_label = ttk.Label(dimensions_overlay, text="Width (mm):", font=('TkDefaultFont', 8))
-        self.width_label.grid(row=1, column=0, sticky=tk.E, padx=(0, 3))
         self.width_var = tk.StringVar(value="")  # Empty until points selected
         self.width_var.trace_add('write', self.on_dimension_changed)
         self.width_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=1, width=8)
-        self.width_spinbox.grid(row=1, column=1, padx=3)
+        self.width_spinbox.grid(row=0, column=2, padx=3)
 
-        self.height_label = ttk.Label(dimensions_overlay, text="Height (mm):", font=('TkDefaultFont', 8))
-        self.height_label.grid(row=1, column=2, sticky=tk.E, padx=(5, 3))
+        ttk.Label(dimensions_overlay, text="x", font=('TkDefaultFont', 8)).grid(row=0, column=3, padx=2)
+
         self.height_var = tk.StringVar(value="")  # Empty until points selected
         self.height_var.trace_add('write', self.on_dimension_changed)
         self.height_spinbox = ttk.Spinbox(dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8)
-        self.height_spinbox.grid(row=1, column=3, padx=3)
+        self.height_spinbox.grid(row=0, column=4, padx=3)
+
+        self.transform_btn = ttk.Button(dimensions_overlay, text="Apply", command=self.apply_transform, state=tk.DISABLED, width=6)
+        self.transform_btn.grid(row=0, column=5, padx=(5, 0))
 
         # Status Bar at bottom
         status_frame = ttk.Frame(self.root, relief=tk.SUNKEN, padding="2")
@@ -516,8 +555,6 @@ class DewarpGUI:
         tab_action_overlay.place(relx=0.0, rely=0.0, x=5, y=5, anchor=tk.NW)
         ttk.Button(tab_action_overlay, text="Reset", command=self.reset_points, width=6).pack(side=tk.LEFT, padx=1)
         ttk.Button(tab_action_overlay, text="Auto", command=self.auto_detect_corners, width=6).pack(side=tk.LEFT, padx=1)
-        self.tab_transform_btn = ttk.Button(tab_action_overlay, text="Apply", command=self.apply_transform, state=tk.DISABLED, width=6)
-        self.tab_transform_btn.pack(side=tk.LEFT, padx=1)
 
         tab_zoom_overlay = ttk.Frame(self.tab_left_frame, relief=tk.RAISED, borderwidth=1)
         tab_zoom_overlay.place(relx=1.0, rely=0.0, x=-5, y=5, anchor=tk.NE)
@@ -538,16 +575,17 @@ class DewarpGUI:
         self.tab_result_zoom_label = ttk.Label(tab_result_zoom_overlay, text="100%", width=5)
         self.tab_result_zoom_label.pack(side=tk.LEFT, padx=3)
 
-        # Share dimension controls between both layouts (page size selector shared via self.page_size_var)
-        ttk.Label(tab_dimensions_overlay, text="Page Size:", font=('TkDefaultFont', 8)).grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
-        ttk.Combobox(tab_dimensions_overlay, textvariable=self.page_size_var,
-                     values=list(self.PAGE_SIZES.keys()),
-                     state='readonly', width=18).grid(row=0, column=1, columnspan=3, sticky=tk.W, padx=3, pady=(0, 5))
-
-        ttk.Label(tab_dimensions_overlay, text="Width (mm):", font=('TkDefaultFont', 8)).grid(row=1, column=0, sticky=tk.E, padx=(0, 3))
-        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=1, width=8).grid(row=1, column=1, padx=3)
-        ttk.Label(tab_dimensions_overlay, text="Height (mm):", font=('TkDefaultFont', 8)).grid(row=1, column=2, sticky=tk.E, padx=(5, 3))
-        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8).grid(row=1, column=3, padx=3)
+        # Share dimension controls between both layouts (consolidated single line)
+        ttk.Label(tab_dimensions_overlay, text="Size (mm):", font=('TkDefaultFont', 8)).grid(row=0, column=0, sticky=tk.E, padx=(0, 3))
+        self.tab_page_size_combo = ttk.Combobox(tab_dimensions_overlay, textvariable=self.page_size_var,
+                     values=self.get_page_size_display_names(),
+                     state='readonly', width=18)
+        self.tab_page_size_combo.grid(row=0, column=1, sticky=tk.W, padx=3)
+        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.width_var, from_=1, to=9999, increment=1, width=8).grid(row=0, column=2, padx=3)
+        ttk.Label(tab_dimensions_overlay, text="x", font=('TkDefaultFont', 8)).grid(row=0, column=3, padx=2)
+        ttk.Spinbox(tab_dimensions_overlay, textvariable=self.height_var, from_=1, to=9999, increment=1, width=8).grid(row=0, column=4, padx=3)
+        self.tab_transform_btn = ttk.Button(tab_dimensions_overlay, text="Apply", command=self.apply_transform, state=tk.DISABLED, width=6)
+        self.tab_transform_btn.grid(row=0, column=5, padx=(5, 0))
 
         # Add tabs to notebook
         self.notebook.add(self.tab_left_frame, text="Original")
@@ -610,11 +648,15 @@ class DewarpGUI:
             self.dimensions_manually_set = True
             # User manually changed dimensions, reset to Custom
             self.page_size_var.set("Custom")
+            # Auto-apply transform if we have 4 corners
+            if len(self.points) == 4 and self.image is not None:
+                self.apply_transform()
 
     def on_page_size_changed(self, event=None):
         """Called when page size is selected from dropdown"""
-        selected_size = self.page_size_var.get()
-        page_dims = self.PAGE_SIZES.get(selected_size)
+        selected_display = self.page_size_var.get()
+        selected_key = self.get_page_size_key_from_display(selected_display)
+        page_dims = self.PAGE_SIZES_DATA.get(selected_key)
 
         if page_dims is not None:
             # Standard page size selected - update dimensions
@@ -649,6 +691,10 @@ class DewarpGUI:
             # Mark as manually set since user chose specific dimensions
             self.dimensions_manually_set = True
 
+            # If we have 4 corners placed, automatically re-apply transform with new dimensions
+            if len(self.points) == 4 and self.image is not None:
+                self.apply_transform()
+
     def on_dpi_changed(self, *args):
         """Called when DPI is modified"""
         try:
@@ -661,17 +707,67 @@ class DewarpGUI:
     def on_units_changed(self, *args):
         """Called when units preference is modified"""
         try:
-            units = self.units.get()
-            # Update dimension labels
-            if units == "pixels":
-                self.width_label.config(text="Width (px):")
-                self.height_label.config(text="Height (px):")
-            elif units == "inches":
-                self.width_label.config(text="Width (in):")
-                self.height_label.config(text="Height (in):")
+            new_units = self.units.get()
+            old_units = getattr(self, '_previous_units', new_units)
+
+            # Convert existing dimension values to new units
+            if old_units != new_units and hasattr(self, 'width_var') and hasattr(self, 'height_var'):
+                try:
+                    width_str = self.width_var.get()
+                    height_str = self.height_var.get()
+
+                    if width_str and height_str:
+                        width_val = float(width_str)
+                        height_val = float(height_str)
+                        dpi = int(self.dpi_var.get()) if hasattr(self, 'dpi_var') else 300
+
+                        # Convert old units to mm first
+                        if old_units == "mm":
+                            width_mm = width_val
+                            height_mm = height_val
+                        elif old_units == "inches":
+                            width_mm = width_val * 25.4
+                            height_mm = height_val * 25.4
+                        elif old_units == "pixels":
+                            width_mm = (width_val / dpi) * 25.4
+                            height_mm = (height_val / dpi) * 25.4
+
+                        # Convert mm to new units
+                        if new_units == "mm":
+                            new_width = width_mm
+                            new_height = height_mm
+                        elif new_units == "inches":
+                            new_width = width_mm / 25.4
+                            new_height = height_mm / 25.4
+                        elif new_units == "pixels":
+                            new_width = (width_mm / 25.4) * dpi
+                            new_height = (height_mm / 25.4) * dpi
+
+                        # Update the dimension fields
+                        self._updating_dimensions = True
+                        if new_units == "pixels":
+                            self.width_var.set(str(int(round(new_width))))
+                            self.height_var.set(str(int(round(new_height))))
+                        else:
+                            self.width_var.set(f"{new_width:.1f}")
+                            self.height_var.set(f"{new_height:.1f}")
+                        self._updating_dimensions = False
+                except (ValueError, TypeError):
+                    # Ignore conversion errors for empty or invalid values
+                    pass
+
+            # Store current units for next change
+            self._previous_units = new_units
+
+            # Update size label
+            if new_units == "pixels":
+                self.size_label.config(text="Size (px):")
+            elif new_units == "inches":
+                self.size_label.config(text="Size (in):")
             else:  # mm
-                self.width_label.config(text="Width (mm):")
-                self.height_label.config(text="Height (mm):")
+                self.size_label.config(text="Size (mm):")
+            # Update page size dropdown to show dimensions in new units
+            self.update_page_size_dropdown()
         except (tk.TclError, AttributeError):
             # Ignore errors during initialization
             pass
@@ -800,8 +896,14 @@ class DewarpGUI:
         self.result_canvas.delete("all")
         self.tab_result_canvas.delete("all")
 
-        direction = "clockwise" if clockwise else "counter-clockwise"
-        self.status_label.config(text=f"Image rotated 90 deg {direction}. Click 4 corners to transform.")
+        # Auto-detect corners if preference is enabled
+        if self.auto_detect_on_load.get():
+            self.auto_detect_corners(show_debug=False)
+            direction = "clockwise" if clockwise else "counter-clockwise"
+            self.status_label.config(text=f"Image rotated 90 deg {direction}. Corners auto-detected.")
+        else:
+            direction = "clockwise" if clockwise else "counter-clockwise"
+            self.status_label.config(text=f"Image rotated 90 deg {direction}. Click 4 corners to transform.")
 
     def flip_original(self, horizontal=True):
         """Flip the original image horizontally or vertically"""
@@ -1426,6 +1528,8 @@ class DewarpGUI:
         self.height_var.set("")
         self._updating_dimensions = False
         self.dimensions_manually_set = False
+        # Reset page size selector to Custom
+        self.page_size_var.set("Custom")
 
         # Display the image on both canvases
         self.display_on_canvas()
@@ -1686,10 +1790,12 @@ class DewarpGUI:
 
             if len(self.points) == 4:
                 self.calculate_output_dimensions()
-                self.status_label.config(text="All 4 points selected. Dimensions calculated. Adjust by dragging or click 'Apply Transform'.")
                 self.transform_btn.config(state=tk.NORMAL)
                 if self.layout_mode == "tabbed":
                     self.tab_transform_btn.config(state=tk.NORMAL)
+                # Auto-apply transform when 4th point is placed
+                self.apply_transform()
+                self.status_label.config(text="Transform applied. Adjust points if needed.")
             else:
                 labels = ["top-left", "top-right", "bottom-right", "bottom-left"]
                 self.status_label.config(text=f"Point {len(self.points)}/4 added. Suggest: {labels[len(self.points)]}")
@@ -1739,9 +1845,10 @@ class DewarpGUI:
             self.dragging_point = None
             self.drag_start = None
             canvas_widget.config(cursor="cross")
-            # Recalculate dimensions after dragging a point
+            # Recalculate dimensions and auto-apply after dragging a point
             if len(self.points) == 4:
                 self.calculate_output_dimensions()
+                self.apply_transform()
         elif self.dragging_scale_point is not None:
             self.dragging_scale_point = None
             canvas_widget.config(cursor="crosshair")
@@ -1917,7 +2024,9 @@ class DewarpGUI:
                 self.transform_btn.config(state=tk.NORMAL)
                 self.tab_transform_btn.config(state=tk.NORMAL)
 
-                self.status_label.config(text="Auto-detected 4 corners. Adjust if needed, then click 'Apply'.")
+                # Auto-apply transform after auto-detection
+                self.apply_transform()
+                self.status_label.config(text="Auto-detected 4 corners and applied transform. Adjust points if needed.")
 
                 # Show debug window if enabled
                 if show_debug:
